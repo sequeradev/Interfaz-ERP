@@ -9,6 +9,7 @@ import type { MockSession } from "@/lib/auth";
 
 const navItems = [
   { label: "Inicio", href: "/app" },
+  { label: "Chat", href: "/app/chat" },
   { label: "Equipos", href: "/app/teams" },
   { label: "Tareas", href: "/app/tasks" },
   { label: "Calendario", href: "/app/calendar" },

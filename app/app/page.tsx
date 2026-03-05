@@ -1,154 +1,105 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { PostCard } from "@/components/feed/PostCard";
-import { PostComposer } from "@/components/feed/PostComposer";
-import { RightPanel } from "@/components/layout/RightPanel";
-import { TaskModal, type TaskFormValues } from "@/components/tasks/TaskModal";
+import { useMemo } from "react";
 import { useTeamContext } from "@/context/TeamContext";
 import { useWorkContext } from "@/context/WorkContext";
-import { cn } from "@/lib/cn";
+import { getSession } from "@/lib/auth";
 import { mockUsersByTeam } from "@/lib/mockUsers";
-import type { FeedPost, FeedScope } from "@/lib/types";
 
-type FeedTab = FeedScope;
+function getTodayKey(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
-const FEED_TABS: FeedTab[] = ["general", "teams"];
-
-function formatTab(tab: FeedTab): string {
-  return tab === "general" ? "General" : "Equipos";
+function getStatusLabel(status: "todo" | "in_progress" | "done"): string {
+  if (status === "todo") {
+    return "Por hacer";
+  }
+  if (status === "in_progress") {
+    return "En progreso";
+  }
+  return "Completada";
 }
 
 export default function AppHomePage() {
   const { currentTeam } = useTeamContext();
-  const { feedPosts, feedEvents, addFeedPost, addFeedEvent, createTask } = useWorkContext();
-  const [activeTab, setActiveTab] = useState<FeedTab>("general");
-  const [taskModalOpen, setTaskModalOpen] = useState(false);
-  const [taskPrefill, setTaskPrefill] = useState<Partial<TaskFormValues>>({});
+  const { tasksByTeam, feedPosts } = useWorkContext();
+  const session = getSession();
 
   const teamUsers = currentTeam ? mockUsersByTeam[currentTeam.id] ?? [] : [];
+  const currentUser =
+    teamUsers.find((user) => user.email === session?.user.email || user.name === session?.user.name) ??
+    teamUsers[0] ??
+    null;
 
-  function handleSubmitPost(content: string) {
+  const teamTasks = currentTeam ? tasksByTeam[currentTeam.id] ?? [] : [];
+
+  const pendingTasksCount = useMemo(() => {
+    if (!currentUser) {
+      return 0;
+    }
+    return teamTasks.filter((task) => task.assigneeId === currentUser.id && task.status !== "done").length;
+  }, [teamTasks, currentUser]);
+
+  const unreadMessagesCount = useMemo(() => {
     if (!currentTeam) {
-      return;
+      return 0;
     }
 
-    addFeedPost({
-      teamId: currentTeam.id,
-      author: "Usuario Demo",
-      role: "Administrador",
-      content,
-      scope: activeTab
-    });
-  }
+    return feedPosts.filter((post) => post.teamId === currentTeam.id && post.author !== (session?.user.name ?? "")).length;
+  }, [feedPosts, currentTeam, session?.user.name]);
 
-  function handleMarkAsTask(post: FeedPost) {
-    const title = post.content.length > 60 ? `${post.content.slice(0, 60).trim()}...` : post.content;
-    setTaskPrefill({
-      title,
-      description: post.content,
-      status: "todo",
-      priority: "medium"
-    });
-    setTaskModalOpen(true);
-  }
-
-  const visibleFeedItems = useMemo(() => {
-    if (!currentTeam) {
+  const todayTasks = useMemo(() => {
+    if (!currentUser) {
       return [];
     }
 
-    const teamPosts = feedPosts.filter(
-      (post) => post.teamId === currentTeam.id && post.scope === activeTab
-    );
-    const teamEvents = feedEvents.filter(
-      (event) => event.teamId === currentTeam.id || event.teamId == null
-    );
-    return [...teamPosts, ...teamEvents].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-  }, [feedPosts, feedEvents, currentTeam, activeTab]);
+    const todayKey = getTodayKey();
+
+    return teamTasks.filter((task) => task.assigneeId === currentUser.id && task.dueDate === todayKey);
+  }, [teamTasks, currentUser]);
 
   return (
-    <section className="grid gap-6 xl:grid-cols-[760px_340px] xl:justify-center">
-      <div className="w-full space-y-6">
-        <header className="rounded-xl border border-line bg-surface p-6 shadow-sm">
-          <div className="mb-4 space-y-1">
-            <h1 className="font-heading text-4xl font-semibold text-text-primary">Inicio</h1>
-            <p className="text-base text-text-secondary">Actividad y contexto del equipo en tiempo real.</p>
-          </div>
+    <section className="mx-auto w-full max-w-4xl space-y-6">
+      <header className="rounded-xl border border-line bg-surface p-6 shadow-sm">
+        <h1 className="font-heading text-4xl font-semibold text-text-primary">Inicio</h1>
+        <p className="mt-2 text-base text-text-secondary">
+          Resumen rapido de {currentUser?.name ?? session?.user.name ?? "tu usuario"} en {currentTeam?.name ?? "tu equipo"}.
+        </p>
+      </header>
 
-          <div className="flex items-center gap-1" role="tablist" aria-label="Secciones del feed">
-            {FEED_TABS.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === tab}
-                onClick={() => setActiveTab(tab)}
-                className={cn(
-                  "rounded-xl px-4 py-2 text-base font-medium transition-colors",
-                  activeTab === tab
-                    ? "bg-[#e9f0f7] text-brand-primary"
-                    : "text-text-secondary hover:bg-[#f3f7fa] hover:text-text-primary"
-                )}
-              >
-                {formatTab(tab)}
-              </button>
-            ))}
-          </div>
-        </header>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <article className="rounded-xl border border-line bg-surface p-6 shadow-sm">
+          <p className="text-sm font-medium uppercase tracking-wide text-text-secondary">Tareas pendientes</p>
+          <p className="mt-3 font-heading text-5xl font-semibold text-text-primary">{pendingTasksCount}</p>
+        </article>
 
-        <PostComposer authorName="Usuario Demo" onSubmitPost={handleSubmitPost} />
-
-        <div className="space-y-4">
-          {visibleFeedItems.length > 0 ? (
-            visibleFeedItems.map((post) => (
-              <PostCard key={post.id} post={post} onMarkAsTask={handleMarkAsTask} />
-            ))
-          ) : (
-            <div className="rounded-xl border border-line bg-surface p-8 text-center text-base text-text-secondary shadow-sm">
-              Aun no hay actividad en esta pestana para {currentTeam?.name ?? "tu equipo"}.
-            </div>
-          )}
-        </div>
+        <article className="rounded-xl border border-line bg-surface p-6 shadow-sm">
+          <p className="text-sm font-medium uppercase tracking-wide text-text-secondary">Mensajes no leidos</p>
+          <p className="mt-3 font-heading text-5xl font-semibold text-text-primary">{unreadMessagesCount}</p>
+        </article>
       </div>
 
-      <RightPanel />
-
-      <TaskModal
-        open={taskModalOpen}
-        users={teamUsers}
-        title="Crear tarea desde actualizacion"
-        submitLabel="Crear tarea"
-        initialValues={taskPrefill}
-        onClose={() => setTaskModalOpen(false)}
-        onSubmit={(values) => {
-          if (!currentTeam) {
-            return;
-          }
-
-          const task = createTask({
-            teamId: currentTeam.id,
-            title: values.title,
-            description: values.description,
-            assigneeId: values.assigneeId,
-            dueDate: values.dueDate,
-            priority: values.priority,
-            status: values.status
-          });
-
-          addFeedEvent({
-            teamId: currentTeam.id,
-            content: `Tarea creada a partir de una actualizacion: ${task.title}`,
-            author: "Sistema",
-            eventType: "task_created"
-          });
-
-          setTaskModalOpen(false);
-          setTaskPrefill({});
-        }}
-      />
+      <article className="rounded-xl border border-line bg-surface p-6 shadow-sm">
+        <h2 className="font-heading text-2xl font-semibold text-text-primary">Indice de tareas de hoy</h2>
+        <ul className="mt-4 space-y-3">
+          {todayTasks.length > 0 ? (
+            todayTasks.map((task) => (
+              <li key={task.id} className="rounded-lg bg-[#f7fafc] px-4 py-3">
+                <p className="text-base font-medium text-text-primary">{task.title}</p>
+                <p className="text-sm text-text-secondary">Estado: {getStatusLabel(task.status)}</p>
+              </li>
+            ))
+          ) : (
+            <li className="rounded-lg bg-[#f7fafc] px-4 py-3 text-base text-text-secondary">
+              No tienes tareas programadas para hoy.
+            </li>
+          )}
+        </ul>
+      </article>
     </section>
   );
 }

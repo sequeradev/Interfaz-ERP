@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { mockTeams } from "@/lib/mockData";
 import type { Team } from "@/lib/types";
 
@@ -27,8 +27,31 @@ function buildTeamId(): string {
 }
 
 export function TeamProvider({ children }: { children: React.ReactNode }) {
-  const [teams, setTeams] = useState<Team[]>(mockTeams);
-  const [currentTeam, setCurrentTeam] = useState<Team | null>(mockTeams[0] ?? null);
+  const [teams, setTeams] = useState<Team[]>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("flowops_teams");
+      if (stored) return JSON.parse(stored);
+    }
+    return mockTeams;
+  });
+
+  const [currentTeam, setCurrentTeam] = useState<Team | null>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("flowops_current_team");
+      if (stored) return JSON.parse(stored);
+    }
+    return mockTeams[0] ?? null;
+  });
+
+  useEffect(() => {
+    localStorage.setItem("flowops_teams", JSON.stringify(teams));
+  }, [teams]);
+
+  useEffect(() => {
+    if (currentTeam) {
+      localStorage.setItem("flowops_current_team", JSON.stringify(currentTeam));
+    }
+  }, [currentTeam]);
 
   const addTeam = useCallback((input: CreateTeamInput): Team => {
     const newTeam: Team = {

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { mockFeedPosts } from "@/lib/mockFeed";
 import { mockMeetingsByTeam } from "@/lib/mockMeetings";
 import type { FeedEvent, FeedPost, FeedScope, Meeting, Task, TaskPriority, TaskStatus } from "@/lib/types";
@@ -210,10 +210,50 @@ function getMeetingBucketKey(meeting: Pick<Meeting, "scope" | "teamId">): string
 }
 
 export function WorkProvider({ children }: { children: React.ReactNode }) {
-  const [tasksByTeam, setTasksByTeam] = useState<Record<string, Task[]>>(initialTasksByTeam);
-  const [feedPosts, setFeedPosts] = useState<FeedPost[]>(sortByCreatedAtDesc(mockFeedPosts));
-  const [feedEvents, setFeedEvents] = useState<FeedEvent[]>(sortByCreatedAtDesc(initialFeedEvents));
-  const [meetingsByTeam, setMeetingsByTeam] = useState<Record<string, Meeting[]>>(mockMeetingsByTeam);
+  const [tasksByTeam, setTasksByTeam] = useState<Record<string, Task[]>>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("flowops_tasks");
+      if (stored) return JSON.parse(stored);
+    }
+    return initialTasksByTeam;
+  });
+  const [feedPosts, setFeedPosts] = useState<FeedPost[]>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("flowops_feed_posts");
+      if (stored) return JSON.parse(stored);
+    }
+    return sortByCreatedAtDesc(mockFeedPosts);
+  });
+  const [feedEvents, setFeedEvents] = useState<FeedEvent[]>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("flowops_feed_events");
+      if (stored) return JSON.parse(stored);
+    }
+    return sortByCreatedAtDesc(initialFeedEvents);
+  });
+  const [meetingsByTeam, setMeetingsByTeam] = useState<Record<string, Meeting[]>>(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("flowops_meetings");
+      if (stored) return JSON.parse(stored);
+    }
+    return mockMeetingsByTeam;
+  });
+
+  useEffect(() => {
+    localStorage.setItem("flowops_tasks", JSON.stringify(tasksByTeam));
+  }, [tasksByTeam]);
+
+  useEffect(() => {
+    localStorage.setItem("flowops_feed_posts", JSON.stringify(feedPosts));
+  }, [feedPosts]);
+
+  useEffect(() => {
+    localStorage.setItem("flowops_feed_events", JSON.stringify(feedEvents));
+  }, [feedEvents]);
+
+  useEffect(() => {
+    localStorage.setItem("flowops_meetings", JSON.stringify(meetingsByTeam));
+  }, [meetingsByTeam]);
 
   const addFeedEvent = useCallback((input: AddFeedEventInput) => {
     const createdAt = new Date().toISOString();

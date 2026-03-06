@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Montserrat, Source_Sans_3 } from "next/font/google";
+import { ThemeProvider } from "@/components/layout/ThemeProvider";
 import "./globals.css";
 
 const headingFont = Montserrat({
@@ -24,17 +25,18 @@ const monoFont = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FlowOps",
-  description: "Prototipo frontend de FlowOps ERP"
+  title: "FlowOps – ERP inteligente",
+  description: "Gestión de equipos, tareas y proyectos en un panel profesional.",
+  keywords: ["ERP", "gestión", "equipos", "tareas", "FlowOps"],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
       <body
         className={`${headingFont.variable} ${bodyFont.variable} ${monoFont.variable} font-sans antialiased`}
       >
-        {children}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

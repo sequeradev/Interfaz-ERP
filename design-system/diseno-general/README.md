@@ -1,22 +1,28 @@
-ï»¿# DiseÃ±o general ERP
+# Diseño general ERP
+
+## Estructura de carpeta
+- `layout/`: reglas de estructura, grillas y espaciado.
+- `componentes/`: definición de componentes UI base.
+- `patrones/`: patrones de interacción y flujo.
+- `accesibilidad/`: lineamientos de accesibilidad aplicados.
 
 ## Principios
-1. Claridad operativa: cada pantalla debe mostrar estado, acciÃ³n y resultado.
-2. Consistencia: mismos patrones para tablas, formularios y navegaciÃ³n.
+1. Claridad operativa: cada pantalla debe mostrar estado, acción y resultado.
+2. Consistencia: mismos patrones para tablas, formularios y navegación.
 3. Rapidez: minimizar clics para tareas repetitivas.
 
 ## Layout base
-- Sidebar izquierda fija para mÃ³dulos.
+- Sidebar izquierda fija para módulos.
 - Header superior con buscador global, notificaciones y perfil.
-- Ãrea central por vistas (dashboard, listas, detalle, ediciÃ³n).
+- Área central por vistas (dashboard, listas, detalle, edición).
 
 ## Componentes clave
-- Tablas con filtros, orden y paginaciÃ³n.
-- Formularios por secciones con validaciÃ³n inline.
+- Tablas con filtros, orden y paginación.
+- Formularios por secciones con validación inline.
 - Tarjetas KPI para paneles de control.
-- Modales cortos para confirmaciones crÃ­ticas.
+- Modales cortos para confirmaciones críticas.
 
 ## Accesibilidad
-- Contraste mÃ­nimo WCAG AA.
+- Contraste mínimo WCAG AA.
 - Foco visible en componentes interactivos.
 - No depender solo de color para estados.

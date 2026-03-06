@@ -2,19 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Light mode tokens ───────────────────────────────── */
 :root {
-  --color-primary: #1f4e79;
-  --color-secondary: #2a9d8f;
-  --color-accent: #f4a261;
-  --color-background: #f7fafc;
-  --color-surface: #ffffff;
-  --color-border: #d9e2ec;
-  --color-text-primary: #1f2933;
+  --color-primary:        #1f4e79;
+  --color-secondary:      #2a9d8f;
+  --color-accent:         #f4a261;
+  --color-background:     #f7fafc;
+  --color-surface:        #ffffff;
+  --color-surface-2:      #f0f5fa;
+  --color-border:         #d9e2ec;
+  --color-text-primary:   #1f2933;
   --color-text-secondary: #52606d;
-  --color-success: #2f9e44;
-  --color-warning: #f08c00;
-  --color-error: #d64545;
-  --color-info: #1971c2;
+  --color-text-muted:     #9aa5b4;
+  --color-success:        #2f9e44;
+  --color-warning:        #f08c00;
+  --color-error:          #d64545;
+  --color-info:           #1971c2;
+  --color-chat-user:      #e7f0fc;
+  --color-chat-ai:        #f0fdf4;
+}
+
+/* ── Dark mode tokens ────────────────────────────────── */
+.dark {
+  --color-primary:        #4fa3e3;
+  --color-secondary:      #3ec9ba;
+  --color-accent:         #f4a261;
+  --color-background:     #0f1117;
+  --color-surface:        #181c27;
+  --color-surface-2:      #1f2436;
+  --color-border:         #2a3045;
+  --color-text-primary:   #e8ecf0;
+  --color-text-secondary: #8c99ab;
+  --color-text-muted:     #576170;
+  --color-success:        #40c057;
+  --color-warning:        #fab005;
+  --color-error:          #ff6b6b;
+  --color-info:           #4dabf7;
+  --color-chat-user:      #1a2a45;
+  --color-chat-ai:        #152519;
 }
 
 *,
@@ -33,6 +58,7 @@ body {
   background-color: var(--color-background);
   color: var(--color-text-primary);
   line-height: 1.6;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 :focus-visible {
@@ -40,6 +66,23 @@ body {
   outline-offset: 2px;
 }
 
+/* ── Scrollbar ───────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* ── react-big-calendar overrides ────────────────────── */
 .rbc-calendar {
   font-family: var(--font-body), sans-serif;
   color: var(--color-text-primary);
@@ -59,7 +102,7 @@ body {
   padding: 10px 6px;
   font-weight: 600;
   color: var(--color-text-secondary);
-  background: #f9fcff;
+  background: var(--color-surface-2);
 }
 
 .rbc-day-bg + .rbc-day-bg,
@@ -86,5 +129,21 @@ body {
 }
 
 .rbc-off-range-bg {
-  background: #f8fbfd;
+  background: var(--color-surface-2);
+}
+
+.rbc-toolbar button {
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+.rbc-toolbar button:hover {
+  background: var(--color-surface-2);
+}
+
+.rbc-toolbar button.rbc-active {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
 }

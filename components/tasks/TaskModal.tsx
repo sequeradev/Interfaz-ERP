@@ -18,6 +18,7 @@ type TaskModalProps = {
   open: boolean;
   title?: string;
   submitLabel?: string;
+  canAssign?: boolean;
   users: User[];
   initialValues?: Partial<TaskFormValues>;
   onClose: () => void;
@@ -37,6 +38,7 @@ export function TaskModal({
   open,
   title = "Crear tarea",
   submitLabel = "Crear tarea",
+  canAssign = true,
   users,
   initialValues,
   onClose,
@@ -83,6 +85,7 @@ export function TaskModal({
 
     onSubmit({
       ...formValues,
+      assigneeId: canAssign ? formValues.assigneeId : initialValues?.assigneeId || undefined,
       title: normalizedTitle
     });
   }
@@ -142,21 +145,30 @@ export function TaskModal({
               <label htmlFor="task-assignee" className="block text-sm font-medium text-text-primary">
                 Responsable
               </label>
-              <select
-                id="task-assignee"
-                value={formValues.assigneeId ?? ""}
-                onChange={(event) =>
-                  setFormValues((previous) => ({ ...previous, assigneeId: event.target.value || undefined }))
-                }
-                className="h-11 w-full rounded-xl border border-line bg-white px-3 text-base text-text-primary shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-info focus-visible:ring-offset-2"
-              >
-                <option value="">Sin asignar</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name}
-                  </option>
-                ))}
-              </select>
+              {canAssign ? (
+                <select
+                  id="task-assignee"
+                  value={formValues.assigneeId ?? ""}
+                  onChange={(event) =>
+                    setFormValues((previous) => ({ ...previous, assigneeId: event.target.value || undefined }))
+                  }
+                  className="h-11 w-full rounded-xl border border-line bg-white px-3 text-base text-text-primary shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-info focus-visible:ring-offset-2"
+                >
+                  <option value="">Sin asignar</option>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div
+                  id="task-assignee"
+                  className="flex h-11 items-center rounded-xl border border-line bg-[#f3f7fa] px-3 text-sm text-text-secondary"
+                >
+                  El manager/admin asignara el responsable.
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">

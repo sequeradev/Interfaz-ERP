@@ -1,17 +1,28 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
 import {
-  Users,
-  UserCheck,
-  UserX,
-  Clock,
-  ArrowRight,
-} from "lucide-react";
-import { useFichajeStore } from "@/lib/store/fichajeStore";
+  closestCorners,
+  DndContext,
+  type DragEndEvent,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors
+} from "@dnd-kit/core";
+import Link from "next/link";
+import { type ElementType, useEffect, useMemo, useState } from "react";
+import { ArrowRight, Clock, GripVertical, UserCheck, UserX, Users } from "lucide-react";
+import { useTeamContext } from "@/context/TeamContext";
+import { useWorkContext } from "@/context/WorkContext";
+import { getSession } from "@/lib/auth";
+import { cn } from "@/lib/cn";
+import { resolveCurrentUser } from "@/lib/mockUsers";
+import { minutesBetween, useFichajeStore } from "@/lib/store/fichajeStore";
+import type { Task } from "@/lib/types";
 
-// ── Live clock (medium size for dashboard) ───────────────
+const QUICK_DROPZONE_ID = "quick-task-dropzone";
+
 function DashClock() {
   const [time, setTime] = useState<Date | null>(null);
 
@@ -24,9 +35,7 @@ function DashClock() {
   if (!time) {
     return (
       <div className="text-center select-none" aria-live="polite" aria-label="Cargando hora">
-        <p className="font-mono text-6xl font-bold tracking-tight text-text-muted sm:text-7xl">
-          --:--
-        </p>
+        <p className="font-mono text-6xl font-bold tracking-tight text-text-muted sm:text-7xl">--:--</p>
         <p className="mt-1 text-base text-text-secondary">Cargando fecha...</p>
       </div>
     );
@@ -44,7 +53,6 @@ function DashClock() {
   );
 }
 
-// ── Big team stat card ───────────────────────────────────
 function TeamCard({
   icon: Icon,
   iconBg,
@@ -52,7 +60,7 @@ function TeamCard({
   value,
   label,
 }: {
-  icon: React.ElementType;
+  icon: ElementType;
   iconBg: string;
   iconColor: string;
   value: string | number;
@@ -69,53 +77,262 @@ function TeamCard({
   );
 }
 
-// ── Simulated team data based on the seeded fichaje store ─
 function useTeamStats() {
   const days = useFichajeStore((s) => s.days);
   const myStatus = useFichajeStore((s) => s.status);
-  const TOTAL_TEAM = 5; // mock team size
+  const TOTAL_TEAM = 5;
 
   const today = new Date().toISOString().slice(0, 10);
   const todayDay = days.find((d) => d.date === today);
-  const myFichadoHoy =
-    todayDay?.records.some((r) => r.type === "in") ?? false;
+  const myFichadoHoy = todayDay?.records.some((r) => r.type === "in") ?? false;
 
-  // Simulate 2 random other teammates always working (for demo)
   const otrosActivos = myStatus === "in" ? 3 : 2;
   const trabajandoAhora = myStatus === "in" ? otrosActivos : otrosActivos;
   const faltanFichar = TOTAL_TEAM - (myFichadoHoy ? otrosActivos + 1 : otrosActivos);
-
-  // Total team hours today (simulated)
   const horasEquipo = myStatus === "in" ? "18h 34m" : "13h 10m";
 
   return { trabajandoAhora, faltanFichar, horasEquipo, TOTAL_TEAM };
 }
 
+function DraggableTask({
+  task,
+  selected,
+  onSelect
+}: {
+  task: Task;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: task.id
+  });
+
+  const style = {
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined
+  };
+
+  return (
+    <button
+      ref={setNodeRef}
+      style={style}
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors",
+        selected
+          ? "border-brand-primary/40 bg-brand-primary/10"
+          : "border-line bg-white hover:border-brand-primary/30 hover:bg-[#eef4f8]",
+        isDragging && "opacity-70"
+      )}
+      {...attributes}
+      {...listeners}
+    >
+      <GripVertical size={16} className="text-text-muted" aria-hidden="true" />
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-text-primary">{task.title}</p>
+        <p className="truncate text-xs text-text-secondary">
+          {task.priority === "high" ? "Alta" : task.priority === "medium" ? "Media" : "Baja"}
+        </p>
+      </div>
+    </button>
+  );
+}
+
+function TaskDropZone({
+  taskTitle,
+  taskMeta,
+  status
+}: {
+  taskTitle?: string | null;
+  taskMeta?: string | null;
+  status: "in" | "out";
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: QUICK_DROPZONE_ID });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "rounded-2xl border border-dashed p-4 transition-colors",
+        isOver ? "border-brand-primary bg-brand-primary/10" : "border-line bg-surface2"
+      )}
+    >
+      <p className="text-sm font-semibold text-text-primary">
+        {status === "out" ? "Suelta una tarea aqui para fichar entrada" : "Tarea activa de esta sesion"}
+      </p>
+      {taskTitle ? (
+        <div className="mt-2 rounded-xl border border-line bg-white px-3 py-2">
+          <p className="text-sm font-semibold text-text-primary">{taskTitle}</p>
+          {taskMeta ? <p className="text-xs text-text-secondary">{taskMeta}</p> : null}
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-text-secondary">Sin tarea seleccionada.</p>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { trabajandoAhora, faltanFichar, horasEquipo, TOTAL_TEAM } = useTeamStats();
-  const myStatus = useFichajeStore((s) => s.status);
+  const { currentTeam } = useTeamContext();
+  const { tasksByTeam } = useWorkContext();
+
+  const session = getSession();
+  const currentUser = resolveCurrentUser(currentTeam?.id, session?.user);
+
   const hydrate = useFichajeStore((s) => s.hydrate);
+  const status = useFichajeStore((s) => s.status);
+  const ficharEntrada = useFichajeStore((s) => s.ficharEntrada);
+  const ficharSalida = useFichajeStore((s) => s.ficharSalida);
+  const getTodayRecords = useFichajeStore((s) => s.getTodayRecords);
+
+  const [selectedTaskId, setSelectedTaskId] = useState<string>("");
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
 
+  const teamTasks = currentTeam ? tasksByTeam[currentTeam.id] ?? [] : [];
+  const pendingTasks = useMemo(() => teamTasks.filter((task) => task.status !== "done"), [teamTasks]);
+
+  const quickTasks = useMemo(() => {
+    const assignedToMe = pendingTasks.filter((task) => task.assigneeId === currentUser?.id);
+    const unassigned = pendingTasks.filter((task) => !task.assigneeId);
+    const all = [...assignedToMe, ...unassigned, ...pendingTasks];
+
+    const seen = new Set<string>();
+    const unique = all.filter((task) => {
+      if (seen.has(task.id)) {
+        return false;
+      }
+      seen.add(task.id);
+      return true;
+    });
+
+    return unique.slice(0, 8);
+  }, [currentUser?.id, pendingTasks]);
+
+  useEffect(() => {
+    if (!selectedTaskId || !quickTasks.some((task) => task.id === selectedTaskId)) {
+      setSelectedTaskId(quickTasks[0]?.id ?? "");
+    }
+  }, [quickTasks, selectedTaskId]);
+
+  const selectedTask = useMemo(
+    () => teamTasks.find((task) => task.id === selectedTaskId) ?? null,
+    [selectedTaskId, teamTasks]
+  );
+
+  const todayRecords = getTodayRecords();
+
+  const activeEntry = useMemo(() => {
+    const sorted = [...todayRecords].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    let opened: (typeof sorted)[number] | null = null;
+    for (const record of sorted) {
+      if (record.type === "in") {
+        opened = record;
+      }
+      if (record.type === "out") {
+        opened = null;
+      }
+    }
+
+    return opened;
+  }, [todayRecords]);
+  const activeTask = useMemo(() => {
+    if (!activeEntry?.taskId) {
+      return null;
+    }
+    return teamTasks.find((task) => task.id === activeEntry.taskId) ?? null;
+  }, [activeEntry?.taskId, teamTasks]);
+
+  const workedByTaskToday = useMemo(() => {
+    const sorted = [...todayRecords].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    const totals = new Map<string, { taskTitle: string; minutes: number }>();
+    let lastIn: (typeof sorted)[number] | null = null;
+
+    for (const record of sorted) {
+      if (record.type === "in") {
+        lastIn = record;
+        continue;
+      }
+
+      if (record.type === "out" && lastIn) {
+        const taskKey = lastIn.taskId ?? "sin-tarea";
+        const taskTitle = lastIn.taskTitle ?? "Sin tarea";
+        const minutes = minutesBetween(lastIn.timestamp, record.timestamp);
+        const previous = totals.get(taskKey);
+        totals.set(taskKey, {
+          taskTitle,
+          minutes: (previous?.minutes ?? 0) + Math.max(0, minutes)
+        });
+        lastIn = null;
+      }
+    }
+
+    if (lastIn) {
+      const taskKey = lastIn.taskId ?? "sin-tarea";
+      const taskTitle = lastIn.taskTitle ?? "Sin tarea";
+      const minutes = minutesBetween(lastIn.timestamp, new Date().toISOString());
+      const previous = totals.get(taskKey);
+      totals.set(taskKey, {
+        taskTitle,
+        minutes: (previous?.minutes ?? 0) + Math.max(0, minutes)
+      });
+    }
+
+    return [...totals.values()].sort((a, b) => b.minutes - a.minutes);
+  }, [todayRecords]);
+
+  function handleDragEnd(event: DragEndEvent) {
+    if (String(event.over?.id) !== QUICK_DROPZONE_ID) {
+      return;
+    }
+
+    setSelectedTaskId(String(event.active.id));
+  }
+
+  function handleQuickFichaje() {
+    if (status === "out") {
+      if (!selectedTask) {
+        window.alert("Selecciona o arrastra una tarea antes de fichar entrada.");
+        return;
+      }
+
+      ficharEntrada({
+        taskId: selectedTask.id,
+        taskTitle: selectedTask.title,
+        memberId: currentUser?.id,
+        memberName: currentUser?.name
+      });
+      return;
+    }
+
+    ficharSalida({
+      memberId: currentUser?.id,
+      memberName: currentUser?.name
+    });
+  }
+
   return (
     <div className="flex flex-col gap-6 animate-fade-up">
-      {/* Page header */}
       <div>
-        <h1 className="font-heading text-3xl font-bold text-text-primary sm:text-4xl">
-          Inicio
-        </h1>
+        <h1 className="font-heading text-3xl font-bold text-text-primary sm:text-4xl">Inicio</h1>
         <p className="mt-1 text-base text-text-secondary">Vista general del equipo</p>
       </div>
 
-      {/* Clock */}
       <div className="rounded-3xl border border-line bg-surface p-8 shadow-soft">
         <DashClock />
       </div>
 
-      {/* Team stat cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <TeamCard
           icon={UserCheck}
@@ -140,31 +357,124 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* My status badge */}
       <div
-        className={`flex items-center justify-center gap-3 rounded-2xl border px-6 py-4 text-lg font-semibold ${myStatus === "in"
+        className={`flex items-center justify-center gap-3 rounded-2xl border px-6 py-4 text-lg font-semibold ${status === "in"
           ? "border-state-success/30 bg-state-success/10 text-state-success"
           : "border-state-error/20 bg-state-error/5 text-state-error"
           }`}
       >
         <span
-          className={`h-3 w-3 rounded-full ${myStatus === "in" ? "animate-pulse bg-state-success" : "bg-state-error"}`}
+          className={`h-3 w-3 rounded-full ${status === "in" ? "animate-pulse bg-state-success" : "bg-state-error"}`}
         />
-        {myStatus === "in" ? "Tú estás trabajando ahora" : "Tú aún no has fichado hoy"}
+        {status === "in" ? "Tu estas trabajando ahora" : "Tu aun no has fichado hoy"}
       </div>
 
-      {/* BIG CTA button */}
-      <Link
-        href="/app/fichaje"
-        className="flex w-full items-center justify-center gap-4 rounded-3xl bg-brand-primary px-8 py-7 text-2xl font-bold text-white shadow-lift transition-all hover:scale-[1.02] hover:opacity-95 active:scale-[0.98] sm:text-3xl"
-        aria-label="Ir a mi fichaje personal"
-      >
-        <Clock size={36} />
-        Ir a mi fichaje
-        <ArrowRight size={28} />
-      </Link>
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+        <div className="grid gap-4 lg:grid-cols-[1.35fr_minmax(0,1fr)]">
+          <section className="rounded-2xl border border-line bg-surface p-5 shadow-soft">
+            <h2 className="text-sm font-semibold text-text-secondary">Mis tareas para fichaje rapido</h2>
+            <p className="mt-1 text-sm text-text-secondary">
+              Arrastra una tarea al bloque de fichaje o haz click para seleccionarla.
+            </p>
 
-      {/* Team members row */}
+            <div className="mt-4 space-y-2">
+              {quickTasks.length > 0 ? (
+                quickTasks.map((task) => (
+                  <DraggableTask
+                    key={task.id}
+                    task={task}
+                    selected={selectedTaskId === task.id}
+                    onSelect={() => setSelectedTaskId(task.id)}
+                  />
+                ))
+              ) : (
+                <div className="rounded-xl border border-line bg-surface2 px-3 py-3 text-sm text-text-secondary">
+                  No hay tareas pendientes para este equipo.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-line bg-surface p-5 shadow-soft">
+            <h2 className="text-sm font-semibold text-text-secondary">Fichaje por tarea</h2>
+            <p className="mt-1 text-sm text-text-secondary">
+              {status === "out"
+                ? "Debes entrar con una tarea seleccionada para medir tiempos por persona."
+                : "Tu sesion actual ya esta vinculada a una tarea."}
+            </p>
+
+            <div className="mt-4">
+              <TaskDropZone
+                status={status}
+                taskTitle={status === "in" ? activeEntry?.taskTitle ?? activeTask?.title : selectedTask?.title}
+                taskMeta={
+                  status === "in"
+                    ? activeTask
+                      ? activeTask.priority === "high"
+                        ? "Prioridad alta"
+                        : activeTask.priority === "medium"
+                          ? "Prioridad media"
+                          : "Prioridad baja"
+                      : null
+                    : selectedTask
+                      ? selectedTask.priority === "high"
+                        ? "Prioridad alta"
+                        : selectedTask.priority === "medium"
+                          ? "Prioridad media"
+                          : "Prioridad baja"
+                      : null
+                }
+              />
+            </div>
+
+            {status === "in" && activeEntry?.taskTitle ? (
+              <div className="mt-3 rounded-xl border border-state-success/30 bg-state-success/10 px-3 py-2 text-sm text-state-success">
+                En curso: {activeEntry.taskTitle}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={handleQuickFichaje}
+              className={cn(
+                "mt-4 flex w-full items-center justify-center gap-3 rounded-2xl px-5 py-4 text-xl font-extrabold text-white transition-all",
+                status === "in" ? "bg-state-error hover:opacity-90" : "bg-state-success hover:opacity-90"
+              )}
+            >
+              <Clock size={22} />
+              {status === "in" ? "Fichar salida" : "Fichar entrada con tarea"}
+            </button>
+
+            <Link
+              href="/app/fichaje"
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-line px-4 py-2 text-sm font-semibold text-text-secondary transition-colors hover:bg-surface2"
+            >
+              Abrir vista completa de fichaje
+              <ArrowRight size={14} />
+            </Link>
+          </section>
+        </div>
+      </DndContext>
+
+      {workedByTaskToday.length > 0 ? (
+        <div className="rounded-2xl border border-line bg-surface p-5 shadow-soft">
+          <h2 className="text-sm font-semibold text-text-secondary">Tiempo de hoy por tarea</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {workedByTaskToday.map((item) => (
+              <span
+                key={item.taskTitle}
+                className="inline-flex items-center gap-2 rounded-full border border-line bg-surface2 px-3 py-1.5 text-sm"
+              >
+                <span className="font-medium text-text-primary">{item.taskTitle}</span>
+                <span className="text-text-secondary">
+                  {Math.floor(item.minutes / 60)}h {String(item.minutes % 60).padStart(2, "0")}m
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="rounded-2xl border border-line bg-surface p-5 shadow-soft">
         <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-text-secondary">
           <Users size={15} />
@@ -174,21 +484,21 @@ export default function DashboardPage() {
           {[
             { name: "Ana G.", active: true },
             { name: "Carlos M.", active: true },
-            { name: "Laura P.", active: myStatus === "in" },
-            { name: "Tú", active: myStatus === "in" },
-            { name: "Rubén T.", active: false },
-          ].map((m) => (
+            { name: "Laura P.", active: status === "in" },
+            { name: "Tu", active: status === "in" },
+            { name: "Ruben T.", active: false },
+          ].map((member) => (
             <div
-              key={m.name}
-              className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${m.active
+              key={member.name}
+              className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${member.active
                 ? "border-state-success/30 bg-state-success/8 text-state-success"
                 : "border-line bg-surface2 text-text-muted"
                 }`}
             >
               <span
-                className={`h-2 w-2 rounded-full ${m.active ? "animate-pulse bg-state-success" : "bg-text-muted"}`}
+                className={`h-2 w-2 rounded-full ${member.active ? "animate-pulse bg-state-success" : "bg-text-muted"}`}
               />
-              {m.name}
+              {member.name}
             </div>
           ))}
         </div>

@@ -141,7 +141,7 @@ export function FloatingChat() {
             {/* Chat Panel */}
             {isOpen && (
                 <div
-                    className="fixed bottom-20 right-4 z-50 flex h-[520px] w-[360px] animate-slide-right flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-lift"
+                    className="fixed bottom-20 right-4 z-50 flex h-[520px] w-[calc(100vw-2rem)] max-w-[360px] animate-slide-right flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-lift"
                     role="dialog"
                     aria-label="Chat del equipo"
                 >

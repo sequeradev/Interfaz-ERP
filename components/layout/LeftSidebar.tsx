@@ -50,7 +50,7 @@ export function LeftSidebar({ session, onSignOut }: LeftSidebarProps) {
 
       {/* Mobile nav */}
       <nav className="border-b border-line bg-surface px-4 py-2 md:hidden" aria-label="Navegación móvil">
-        <ul className="flex gap-1 overflow-x-auto pb-1">
+        <ul className="flex flex-wrap gap-1 pb-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive =

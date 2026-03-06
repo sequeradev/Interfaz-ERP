@@ -1,6 +1,14 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  apiCreateTarea,
+  apiDeleteTarea,
+  apiListProyectos,
+  apiListTareasByProyecto,
+  apiUpdateTarea
+} from "@/lib/api/services";
+import { getSession } from "@/lib/auth";
 import { mockFeedPosts } from "@/lib/mockFeed";
 import { mockMeetingsByTeam } from "@/lib/mockMeetings";
 import type { FeedEvent, FeedPost, FeedScope, Meeting, Task, TaskPriority, TaskStatus } from "@/lib/types";
@@ -209,7 +217,41 @@ function getMeetingBucketKey(meeting: Pick<Meeting, "scope" | "teamId">): string
   return meeting.teamId ?? "general";
 }
 
+function isUuid(value?: string | null): boolean {
+  return Boolean(
+    value &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  );
+}
+
+function mapTaskStatusFromApi(value?: string | null): TaskStatus {
+  const normalized = (value || "").toLowerCase();
+  if (normalized === "done" || normalized === "completed") return "done";
+  if (normalized === "in_progress" || normalized === "in-progress" || normalized === "doing") return "in_progress";
+  return "todo";
+}
+
+function mapTaskStatusToApi(value?: TaskStatus): string {
+  if (value === "in_progress") return "in_progress";
+  if (value === "done") return "done";
+  return "todo";
+}
+
+function mapTaskPriorityFromApi(value?: string | null): TaskPriority {
+  const normalized = (value || "").toLowerCase();
+  if (normalized === "high") return "high";
+  if (normalized === "low") return "low";
+  return "medium";
+}
+
+function mapTaskPriorityToApi(value?: TaskPriority): string {
+  if (value === "high") return "high";
+  if (value === "low") return "low";
+  return "medium";
+}
+
 export function WorkProvider({ children }: { children: React.ReactNode }) {
+  const [projectIdsByTeam, setProjectIdsByTeam] = useState<Record<string, string[]>>({});
   const [tasksByTeam, setTasksByTeam] = useState<Record<string, Task[]>>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("flowops_tasks");
@@ -255,6 +297,65 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("flowops_meetings", JSON.stringify(meetingsByTeam));
   }, [meetingsByTeam]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncTasksFromApi() {
+      const session = getSession();
+      if (!session?.token || session.token === "mock") {
+        return;
+      }
+
+      try {
+        const projects = await apiListProyectos(session.token);
+        const nextProjectMap: Record<string, string[]> = {};
+        const nextTasksByTeam: Record<string, Task[]> = {};
+
+        await Promise.all(
+          projects.map(async (project) => {
+            if (!project.equipo_id) {
+              return;
+            }
+
+            if (!nextProjectMap[project.equipo_id]) {
+              nextProjectMap[project.equipo_id] = [];
+            }
+            nextProjectMap[project.equipo_id].push(project.proyecto_id);
+
+            const apiTasks = await apiListTareasByProyecto(session.token, project.proyecto_id);
+
+            const mappedTasks: Task[] = apiTasks.map((task) => ({
+              id: task.tarea_id,
+              teamId: project.equipo_id as string,
+              title: task.titulo,
+              description: task.descripcion || "",
+              status: mapTaskStatusFromApi(task.estado),
+              priority: mapTaskPriorityFromApi(task.prioridad),
+              assigneeId: task.asignado_a || undefined,
+              dueDate: task.fecha_vencimiento || undefined,
+              createdAt: task.created_at || new Date().toISOString()
+            }));
+
+            nextTasksByTeam[project.equipo_id] = [...(nextTasksByTeam[project.equipo_id] ?? []), ...mappedTasks];
+          })
+        );
+
+        if (cancelled) return;
+        setProjectIdsByTeam(nextProjectMap);
+        if (Object.keys(nextTasksByTeam).length > 0) {
+          setTasksByTeam(nextTasksByTeam);
+        }
+      } catch {
+        // Keep local tasks as fallback.
+      }
+    }
+
+    syncTasksFromApi();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const addFeedEvent = useCallback((input: AddFeedEventInput) => {
     const createdAt = new Date().toISOString();
 
@@ -298,7 +399,7 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
 
   const createTask = useCallback((input: CreateTaskInput): Task => {
     const createdAt = new Date().toISOString();
-    const newTask: Task = {
+    const optimisticTask: Task = {
       id: buildId("task"),
       teamId: input.teamId,
       title: input.title.trim(),
@@ -314,13 +415,51 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
       const teamTasks = previousTasks[input.teamId] ?? [];
       return {
         ...previousTasks,
-        [input.teamId]: [...teamTasks, newTask]
+        [input.teamId]: [...teamTasks, optimisticTask]
       };
     });
 
-    // TODO: Replace this with a backend task creation API call.
-    return newTask;
-  }, []);
+    const session = getSession();
+    const teamProjectId = projectIdsByTeam[input.teamId]?.[0];
+
+    if (session?.token && session.token !== "mock" && teamProjectId) {
+      void (async () => {
+        try {
+          const created = await apiCreateTarea(session.token, teamProjectId, {
+            titulo: input.title.trim(),
+            descripcion: input.description?.trim() || "",
+            estado: mapTaskStatusToApi(input.status ?? "todo"),
+            prioridad: mapTaskPriorityToApi(input.priority ?? "medium"),
+            asignado_a: isUuid(input.assigneeId) ? input.assigneeId : undefined,
+            fecha_vencimiento: input.dueDate
+          });
+
+          setTasksByTeam((previousTasks) => {
+            const teamTasks = previousTasks[input.teamId] ?? [];
+            return {
+              ...previousTasks,
+              [input.teamId]: teamTasks.map((task) =>
+                task.id === optimisticTask.id
+                  ? {
+                      ...task,
+                      id: created.tarea_id,
+                      assigneeId: created.asignado_a || task.assigneeId,
+                      dueDate: created.fecha_vencimiento || task.dueDate,
+                      status: mapTaskStatusFromApi(created.estado),
+                      priority: mapTaskPriorityFromApi(created.prioridad)
+                    }
+                  : task
+              )
+            };
+          });
+        } catch {
+          // Keep optimistic local task if API fails.
+        }
+      })();
+    }
+
+    return optimisticTask;
+  }, [projectIdsByTeam]);
 
   const updateTask = useCallback((taskId: string, updates: UpdateTaskInput) => {
     setTasksByTeam((previousTasks) => {
@@ -335,7 +474,25 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
       return nextTasksByTeam;
     });
 
-    // TODO: Replace this with a backend task update API call.
+    const session = getSession();
+    if (!session?.token || session.token === "mock" || !isUuid(taskId)) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        await apiUpdateTarea(session.token, taskId, {
+          titulo: updates.title?.trim(),
+          descripcion: updates.description,
+          estado: updates.status ? mapTaskStatusToApi(updates.status) : undefined,
+          prioridad: updates.priority ? mapTaskPriorityToApi(updates.priority) : undefined,
+          asignado_a: updates.assigneeId && isUuid(updates.assigneeId) ? updates.assigneeId : null,
+          fecha_vencimiento: updates.dueDate || null
+        });
+      } catch {
+        // Keep local update if API fails.
+      }
+    })();
   }, []);
 
   const deleteTask = useCallback((taskId: string) => {
@@ -349,7 +506,18 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
       return nextTasksByTeam;
     });
 
-    // TODO: Replace this with a backend task deletion API call.
+    const session = getSession();
+    if (!session?.token || session.token === "mock" || !isUuid(taskId)) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        await apiDeleteTarea(session.token, taskId);
+      } catch {
+        // Keep local delete if API fails.
+      }
+    })();
   }, []);
 
   const moveTask = useCallback(
@@ -407,7 +575,16 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      // TODO: Replace this with a backend task move API call.
+      const session = getSession();
+      if (session?.token && session.token !== "mock" && isUuid(taskId)) {
+        void (async () => {
+          try {
+            await apiUpdateTarea(session.token, taskId, { estado: mapTaskStatusToApi(newStatus) });
+          } catch {
+            // Keep local move if API fails.
+          }
+        })();
+      }
     },
     [addFeedEvent, tasksByTeam]
   );

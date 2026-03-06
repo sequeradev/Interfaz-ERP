@@ -9,6 +9,7 @@ type TaskDrawerProps = {
   open: boolean;
   task: Task | null;
   users: User[];
+  canAssign?: boolean;
   onClose: () => void;
   onSave: (taskId: string, updates: Partial<Task>) => void;
   onDelete: (taskId: string) => void;
@@ -23,7 +24,7 @@ type DrawerForm = {
   status: TaskStatus;
 };
 
-export function TaskDrawer({ open, task, users, onClose, onSave, onDelete }: TaskDrawerProps) {
+export function TaskDrawer({ open, task, users, canAssign = true, onClose, onSave, onDelete }: TaskDrawerProps) {
   const [form, setForm] = useState<DrawerForm>({
     title: "",
     description: "",
@@ -70,7 +71,7 @@ export function TaskDrawer({ open, task, users, onClose, onSave, onDelete }: Tas
     onSave(task.id, {
       title: normalizedTitle,
       description: form.description,
-      assigneeId: form.assigneeId || undefined,
+      assigneeId: canAssign ? form.assigneeId || undefined : task.assigneeId,
       dueDate: form.dueDate || undefined,
       priority: form.priority,
       status: form.status
@@ -130,21 +131,30 @@ export function TaskDrawer({ open, task, users, onClose, onSave, onDelete }: Tas
               <label htmlFor="drawer-assignee" className="block text-sm font-medium text-text-primary">
                 Responsable
               </label>
-              <select
-                id="drawer-assignee"
-                value={form.assigneeId ?? ""}
-                onChange={(event) =>
-                  setForm((previous) => ({ ...previous, assigneeId: event.target.value || undefined }))
-                }
-                className="h-11 w-full rounded-xl border border-line bg-white px-3 text-base text-text-primary shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-info focus-visible:ring-offset-2"
-              >
-                <option value="">Sin asignar</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.name}
-                  </option>
-                ))}
-              </select>
+              {canAssign ? (
+                <select
+                  id="drawer-assignee"
+                  value={form.assigneeId ?? ""}
+                  onChange={(event) =>
+                    setForm((previous) => ({ ...previous, assigneeId: event.target.value || undefined }))
+                  }
+                  className="h-11 w-full rounded-xl border border-line bg-white px-3 text-base text-text-primary shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-info focus-visible:ring-offset-2"
+                >
+                  <option value="">Sin asignar</option>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div
+                  id="drawer-assignee"
+                  className="flex h-11 items-center rounded-xl border border-line bg-[#f3f7fa] px-3 text-sm text-text-secondary"
+                >
+                  Solo manager/admin puede cambiar responsable.
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">

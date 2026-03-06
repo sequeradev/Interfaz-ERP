@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { KanbanColumn } from "@/components/tasks/KanbanColumn";
 import { TaskCard } from "@/components/tasks/TaskCard";
 import { TaskDrawer } from "@/components/tasks/TaskDrawer";
@@ -22,8 +22,9 @@ import { TaskModal, type TaskFormValues } from "@/components/tasks/TaskModal";
 import { Button } from "@/components/ui/button";
 import { useTeamContext } from "@/context/TeamContext";
 import { useWorkContext } from "@/context/WorkContext";
+import { getSession } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { mockUsersByTeam } from "@/lib/mockUsers";
+import { getUsersByTeam, resolveCurrentUser } from "@/lib/mockUsers";
 import type { Task, TaskPriority, TaskStatus, User } from "@/lib/types";
 
 const STATUS_COLUMNS: Array<{ status: TaskStatus; label: string }> = [
@@ -130,12 +131,15 @@ function DroppableColumn({
 
 export default function TasksPage() {
   const { currentTeam } = useTeamContext();
-  const { tasksByTeam, createTask, updateTask, moveTask, deleteTask } = useWorkContext();
+  const { tasksByTeam, createTask, updateTask, moveTask, deleteTask, addFeedEvent } = useWorkContext();
+  const session = getSession();
 
   const [search, setSearch] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<"all" | TaskPriority>("all");
   const [dueFilter, setDueFilter] = useState<DueFilter>("all");
+  const [assignmentTaskId, setAssignmentTaskId] = useState("");
+  const [assignmentTargetUserId, setAssignmentTargetUserId] = useState("");
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskModalDefaults, setTaskModalDefaults] = useState<Partial<TaskFormValues>>({});
@@ -152,8 +156,21 @@ export default function TasksPage() {
   );
 
   const teamTasks = currentTeam ? tasksByTeam[currentTeam.id] ?? [] : [];
-  const teamUsers = currentTeam ? mockUsersByTeam[currentTeam.id] ?? [] : [];
+  const teamUsers = getUsersByTeam(currentTeam?.id);
+  const currentUser = resolveCurrentUser(currentTeam?.id, session?.user);
+  const canManageAssignments = currentTeam?.role === "admin" || currentTeam?.role === "manager";
   const usersById = useMemo(() => new Map(teamUsers.map((user) => [user.id, user])), [teamUsers]);
+  const assignableTasks = useMemo(() => teamTasks.filter((task) => task.status !== "done"), [teamTasks]);
+
+  useEffect(() => {
+    if (!assignmentTargetUserId || !teamUsers.some((user) => user.id === assignmentTargetUserId)) {
+      setAssignmentTargetUserId(teamUsers[0]?.id ?? "");
+    }
+
+    if (!assignmentTaskId || !assignableTasks.some((task) => task.id === assignmentTaskId)) {
+      setAssignmentTaskId(assignableTasks[0]?.id ?? "");
+    }
+  }, [assignmentTargetUserId, assignmentTaskId, assignableTasks, teamUsers]);
 
   const filteredTasks = useMemo(() => {
     return teamTasks.filter((task) => {
@@ -181,19 +198,48 @@ export default function TasksPage() {
     };
   }, [filteredTasks]);
 
+  const assignedCountByUser = useMemo(() => {
+    return teamUsers.reduce<Record<string, number>>((accumulator, user) => {
+      accumulator[user.id] = teamTasks.filter((task) => task.assigneeId === user.id && task.status !== "done").length;
+      return accumulator;
+    }, {});
+  }, [teamTasks, teamUsers]);
+
   const selectedTask = selectedTaskId ? teamTasks.find((task) => task.id === selectedTaskId) ?? null : null;
   const activeDragTask = activeDragTaskId ? teamTasks.find((task) => task.id === activeDragTaskId) ?? null : null;
+
+  function handleQuickAssignment() {
+    if (!canManageAssignments || !currentTeam || !assignmentTaskId || !assignmentTargetUserId) {
+      return;
+    }
+
+    const task = teamTasks.find((item) => item.id === assignmentTaskId);
+    const targetUser = usersById.get(assignmentTargetUserId);
+    if (!task || !targetUser || task.assigneeId === assignmentTargetUserId) {
+      return;
+    }
+
+    updateTask(task.id, { assigneeId: assignmentTargetUserId });
+    addFeedEvent({
+      teamId: currentTeam.id,
+      content: `Tarea asignada: ${task.title} -> ${targetUser.name}`,
+      author: "Sistema",
+      eventType: "system"
+    });
+  }
 
   function handleCreateTask(values: TaskFormValues) {
     if (!currentTeam) {
       return;
     }
 
+    const assigneeId = canManageAssignments ? values.assigneeId : currentUser?.id;
+
     createTask({
       teamId: currentTeam.id,
       title: values.title,
       description: values.description,
-      assigneeId: values.assigneeId,
+      assigneeId,
       dueDate: values.dueDate,
       priority: values.priority,
       status: values.status
@@ -255,13 +301,91 @@ export default function TasksPage() {
           type="button"
           className="w-auto px-5"
           onClick={() => {
-            setTaskModalDefaults({ status: "todo", priority: "medium" });
+            setTaskModalDefaults({
+              status: "todo",
+              priority: "medium",
+              assigneeId: canManageAssignments ? undefined : currentUser?.id
+            });
             setTaskModalOpen(true);
           }}
         >
           + Nueva tarea
         </Button>
       </header>
+
+      {canManageAssignments ? (
+        <div className="space-y-4 rounded-xl border border-line bg-surface p-6 shadow-sm">
+          <div className="space-y-1">
+            <h2 className="font-heading text-2xl font-semibold text-text-primary">Asignacion rapida</h2>
+            <p className="text-sm text-text-secondary">
+              Admin y manager pueden asignar tareas a cualquier miembro con un solo paso.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+            <div className="space-y-1.5">
+              <label htmlFor="assignment-member" className="block text-sm font-medium text-text-primary">
+                Miembro
+              </label>
+              <select
+                id="assignment-member"
+                value={assignmentTargetUserId}
+                onChange={(event) => setAssignmentTargetUserId(event.target.value)}
+                className="h-11 w-full rounded-xl border border-line bg-white px-3 text-base text-text-primary shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-info focus-visible:ring-offset-2"
+              >
+                {teamUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="assignment-task" className="block text-sm font-medium text-text-primary">
+                Tarea
+              </label>
+              <select
+                id="assignment-task"
+                value={assignmentTaskId}
+                onChange={(event) => setAssignmentTaskId(event.target.value)}
+                className="h-11 w-full rounded-xl border border-line bg-white px-3 text-base text-text-primary shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-state-info focus-visible:ring-offset-2"
+              >
+                {assignableTasks.length > 0 ? (
+                  assignableTasks.map((task) => (
+                    <option key={task.id} value={task.id}>
+                      {task.title}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No hay tareas pendientes</option>
+                )}
+              </select>
+            </div>
+
+            <Button
+              type="button"
+              className="w-auto px-5"
+              onClick={handleQuickAssignment}
+              disabled={!assignmentTaskId || !assignmentTargetUserId || assignableTasks.length === 0}
+            >
+              Asignar tarea
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {teamUsers.map((user) => (
+              <span
+                key={user.id}
+                className="inline-flex items-center gap-2 rounded-full border border-line bg-[#f3f7fa] px-3 py-1.5 text-sm text-text-secondary"
+              >
+                <span className="font-medium text-text-primary">{user.name}</span>
+                <span>{assignedCountByUser[user.id] ?? 0} activas</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 rounded-xl border border-line bg-surface p-6 shadow-sm md:grid-cols-4">
         <input
@@ -328,7 +452,11 @@ export default function TasksPage() {
               usersById={usersById}
               onOpenTask={setSelectedTaskId}
               onAddTask={(status) => {
-                setTaskModalDefaults({ status, priority: "medium" });
+                setTaskModalDefaults({
+                  status,
+                  priority: "medium",
+                  assigneeId: canManageAssignments ? undefined : currentUser?.id
+                });
                 setTaskModalOpen(true);
               }}
             />
@@ -352,6 +480,7 @@ export default function TasksPage() {
       <TaskModal
         open={taskModalOpen}
         users={teamUsers}
+        canAssign={canManageAssignments}
         initialValues={taskModalDefaults}
         onClose={() => {
           setTaskModalOpen(false);
@@ -364,6 +493,7 @@ export default function TasksPage() {
         open={Boolean(selectedTask)}
         task={selectedTask}
         users={teamUsers}
+        canAssign={canManageAssignments}
         onClose={() => setSelectedTaskId(null)}
         onSave={(taskId, updates) => {
           const currentTask = teamTasks.find((task) => task.id === taskId);

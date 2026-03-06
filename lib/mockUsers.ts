@@ -23,3 +23,28 @@ export const mockUsersByTeam: Record<string, User[]> = {
     { id: "user-15", teamId: "team-3", name: "TONI", initials: "TO", email: "toni@flowops.com", role: "Director de Arte" }
   ]
 };
+
+type SessionUser = {
+  email: string;
+  name: string;
+};
+
+export function getUsersByTeam(teamId?: string | null): User[] {
+  if (!teamId) {
+    return [];
+  }
+  return mockUsersByTeam[teamId] ?? [];
+}
+
+export function resolveCurrentUser(teamId?: string | null, sessionUser?: SessionUser | null): User | null {
+  const teamUsers = getUsersByTeam(teamId);
+  if (teamUsers.length === 0) {
+    return null;
+  }
+
+  const matchedUser = teamUsers.find(
+    (user) => user.email === sessionUser?.email || user.name === sessionUser?.name
+  );
+
+  return matchedUser ?? teamUsers[0];
+}

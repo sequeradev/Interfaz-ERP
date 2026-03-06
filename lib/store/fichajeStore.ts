@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { apiClockIn, apiClockOut } from "@/lib/api/services";
+import { getSession } from "@/lib/auth";
 
 // ── Types ────────────────────────────────────────────────
 export type FichajeRecord = {
@@ -6,6 +8,10 @@ export type FichajeRecord = {
     type: "in" | "out";
     timestamp: string; // ISO
     note?: string;
+    taskId?: string;
+    taskTitle?: string;
+    memberId?: string;
+    memberName?: string;
     editedBy?: "admin";
 };
 
@@ -15,6 +21,14 @@ export type FichajeDay = {
 };
 
 export type ClockStatus = "out" | "in";
+
+export type FichajeEntryMeta = {
+    note?: string;
+    taskId?: string;
+    taskTitle?: string;
+    memberId?: string;
+    memberName?: string;
+};
 
 // ── Helpers ──────────────────────────────────────────────
 export function minutesBetween(a: string, b: string): number {
@@ -68,6 +82,13 @@ function todayStr(): string {
     return new Date().toISOString().slice(0, 10);
 }
 
+function isUuid(value?: string | null): boolean {
+    return Boolean(
+        value &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    );
+}
+
 // ── Demo seed data (client-only) ─────────────────────────
 function buildSeedDays(): FichajeDay[] {
     const seed: FichajeDay[] = [];
@@ -97,9 +118,9 @@ function buildSeedDays(): FichajeDay[] {
 }
 
 // ── localStorage helpers (client-only) ───────────────────
-const LS_KEY = "flowops-fichaje-v3";
+const LS_KEY = "flowops-fichaje-v4";
 
-type PersistedState = { days: FichajeDay[]; status: ClockStatus };
+type PersistedState = { days: FichajeDay[]; status: ClockStatus; activeTimesheetId: string | null };
 
 function loadFromStorage(): PersistedState | null {
     if (typeof window === "undefined") return null;
@@ -125,11 +146,12 @@ function saveToStorage(state: PersistedState) {
 type FichajeStore = {
     days: FichajeDay[];
     status: ClockStatus;
+    activeTimesheetId: string | null;
     _hydrated: boolean;
     hydrate: () => void;
 
-    ficharEntrada: () => void;
-    ficharSalida: () => void;
+    ficharEntrada: (meta?: FichajeEntryMeta) => void;
+    ficharSalida: (meta?: FichajeEntryMeta) => void;
     editRecord: (dayDate: string, recordId: string, newTimestamp: string) => void;
     deleteRecord: (dayDate: string, recordId: string) => void;
 
@@ -144,22 +166,37 @@ export const useFichajeStore = create<FichajeStore>((set, get) => ({
     // Start empty for SSR – hydrate() fills from localStorage
     days: [],
     status: "out",
+    activeTimesheetId: null,
     _hydrated: false,
 
     hydrate() {
         if (get()._hydrated) return;
         const saved = loadFromStorage();
         if (saved) {
-            set({ days: saved.days, status: saved.status, _hydrated: true });
+            set({
+                days: saved.days,
+                status: saved.status,
+                activeTimesheetId: saved.activeTimesheetId ?? null,
+                _hydrated: true
+            });
         } else {
-            set({ days: buildSeedDays(), status: "out", _hydrated: true });
+            set({ days: buildSeedDays(), status: "out", activeTimesheetId: null, _hydrated: true });
         }
     },
 
-    ficharEntrada() {
+    ficharEntrada(meta) {
         const now = new Date().toISOString();
         const today = todayStr();
-        const record: FichajeRecord = { id: `r-${Date.now()}`, type: "in", timestamp: now };
+        const record: FichajeRecord = {
+            id: `r-${Date.now()}`,
+            type: "in",
+            timestamp: now,
+            note: meta?.note,
+            taskId: meta?.taskId,
+            taskTitle: meta?.taskTitle,
+            memberId: meta?.memberId,
+            memberName: meta?.memberName,
+        };
         set((s) => {
             const existing = s.days.find((d) => d.date === today);
             const days = existing
@@ -167,16 +204,47 @@ export const useFichajeStore = create<FichajeStore>((set, get) => ({
                     d.date === today ? { ...d, records: [...d.records, record] } : d
                 )
                 : [{ date: today, records: [record] }, ...s.days];
-            const next = { days, status: "in" as ClockStatus };
+            const next = { days, status: "in" as ClockStatus, activeTimesheetId: s.activeTimesheetId };
             saveToStorage(next);
             return next;
         });
+
+        const session = getSession();
+        if (session?.token && session.token !== "mock") {
+            void (async () => {
+                try {
+                    const response = await apiClockIn(session.token, {
+                        tarea_id: isUuid(meta?.taskId) ? meta?.taskId : undefined,
+                        notas: meta?.note
+                    });
+
+                    set((s) => {
+                        const next = {
+                            days: s.days,
+                            status: s.status,
+                            activeTimesheetId: response.timesheet_id
+                        };
+                        saveToStorage(next);
+                        return { activeTimesheetId: response.timesheet_id };
+                    });
+                } catch {
+                    // Keep local clock-in if API fails.
+                }
+            })();
+        }
     },
 
-    ficharSalida() {
+    ficharSalida(meta) {
         const now = new Date().toISOString();
         const today = todayStr();
-        const record: FichajeRecord = { id: `r-${Date.now()}`, type: "out", timestamp: now };
+        const record: FichajeRecord = {
+            id: `r-${Date.now()}`,
+            type: "out",
+            timestamp: now,
+            note: meta?.note,
+            memberId: meta?.memberId,
+            memberName: meta?.memberName,
+        };
         set((s) => {
             const existing = s.days.find((d) => d.date === today);
             const days = existing
@@ -184,10 +252,22 @@ export const useFichajeStore = create<FichajeStore>((set, get) => ({
                     d.date === today ? { ...d, records: [...d.records, record] } : d
                 )
                 : [{ date: today, records: [record] }, ...s.days];
-            const next = { days, status: "out" as ClockStatus };
+            const next = { days, status: "out" as ClockStatus, activeTimesheetId: null };
             saveToStorage(next);
             return next;
         });
+
+        const session = getSession();
+        const activeTimesheetId = get().activeTimesheetId;
+        if (session?.token && session.token !== "mock" && activeTimesheetId && isUuid(activeTimesheetId)) {
+            void (async () => {
+                try {
+                    await apiClockOut(session.token, activeTimesheetId, meta?.note);
+                } catch {
+                    // Keep local clock-out if API fails.
+                }
+            })();
+        }
     },
 
     editRecord(dayDate, recordId, newTimestamp) {
@@ -204,7 +284,7 @@ export const useFichajeStore = create<FichajeStore>((set, get) => ({
                     }
                     : d
             );
-            saveToStorage({ days, status: s.status });
+            saveToStorage({ days, status: s.status, activeTimesheetId: s.activeTimesheetId });
             return { days };
         });
     },
@@ -216,7 +296,7 @@ export const useFichajeStore = create<FichajeStore>((set, get) => ({
                     ? { ...d, records: d.records.filter((r) => r.id !== recordId) }
                     : d
             );
-            saveToStorage({ days, status: s.status });
+            saveToStorage({ days, status: s.status, activeTimesheetId: s.activeTimesheetId });
             return { days };
         });
     },

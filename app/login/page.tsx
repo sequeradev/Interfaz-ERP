@@ -62,7 +62,7 @@ export default function LoginPage() {
       saveSession(result.session);
       router.replace("/app");
     } else {
-      setGeneralError("Credenciales incorrectas. Usa demo@flowops.com / demo1234");
+      setGeneralError("Credenciales incorrectas o API no disponible. Puedes usar demo@flowops.com / demo1234");
     }
   }
 

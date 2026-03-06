@@ -68,7 +68,7 @@ function AppShell({
   onSignOut: () => void;
 }) {
   return (
-    <div className="min-h-screen bg-appbg">
+    <div className="min-h-screen overflow-x-hidden bg-appbg">
       <LeftSidebar session={session} onSignOut={onSignOut} />
 
       <main className="pb-8 md:pl-[260px]">

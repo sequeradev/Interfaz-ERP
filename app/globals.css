@@ -147,3 +147,46 @@ body {
   color: white;
   border-color: var(--color-primary);
 }
+
+@media (max-width: 767px) {
+  .rbc-calendar {
+    min-width: 0;
+    font-size: 12px;
+  }
+
+  .rbc-month-view,
+  .rbc-time-view,
+  .rbc-agenda-view {
+    width: 100%;
+    min-width: 0;
+    border-radius: 12px;
+  }
+
+  .rbc-header {
+    padding: 6px 2px;
+    font-size: 11px;
+  }
+
+  .rbc-date-cell {
+    padding: 4px 2px;
+    font-size: 11px;
+  }
+
+  .rbc-event {
+    padding: 2px 4px;
+    font-size: 11px;
+    line-height: 1.2;
+  }
+
+  .rbc-event-content {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rbc-time-content,
+  .rbc-time-header-content {
+    min-width: 0;
+    overflow-x: hidden;
+  }
+}

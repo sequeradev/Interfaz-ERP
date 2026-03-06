@@ -9,7 +9,7 @@ import { useTeamContext } from "@/context/TeamContext";
 import { useWorkContext } from "@/context/WorkContext";
 import { getSession } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { mockUsersByTeam } from "@/lib/mockUsers";
+import { getUsersByTeam, resolveCurrentUser } from "@/lib/mockUsers";
 import type { FeedPost } from "@/lib/types";
 
 type ChatMode = "general" | "team" | "direct";
@@ -29,11 +29,9 @@ export default function ChatPage() {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskPrefill, setTaskPrefill] = useState<Partial<TaskFormValues>>({});
 
-  const teamUsers = currentTeam ? mockUsersByTeam[currentTeam.id] ?? [] : [];
-  const currentUser =
-    teamUsers.find((user) => user.email === session?.user.email || user.name === session?.user.name) ??
-    teamUsers[0] ??
-    null;
+  const teamUsers = getUsersByTeam(currentTeam?.id);
+  const currentUser = resolveCurrentUser(currentTeam?.id, session?.user);
+  const canManageAssignments = currentTeam?.role === "admin" || currentTeam?.role === "manager";
   const directUsers = currentUser ? teamUsers.filter((user) => user.id !== currentUser.id) : teamUsers;
 
   const chatSelections = useMemo<ChatSelection[]>(() => {
@@ -220,6 +218,7 @@ export default function ChatPage() {
         title="Crear tarea desde actualizacion"
         submitLabel="Crear tarea"
         initialValues={taskPrefill}
+        canAssign={canManageAssignments}
         onClose={() => setTaskModalOpen(false)}
         onSubmit={(values) => {
           if (!currentTeam) {
@@ -230,7 +229,7 @@ export default function ChatPage() {
             teamId: currentTeam.id,
             title: values.title,
             description: values.description,
-            assigneeId: values.assigneeId,
+            assigneeId: canManageAssignments ? values.assigneeId : currentUser?.id,
             dueDate: values.dueDate,
             priority: values.priority,
             status: values.status

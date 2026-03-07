@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { apiClockIn, apiClockOut } from "@/lib/api/services";
+import { apiClockIn, apiClockOut, apiListTimesheets } from "@/lib/api/services";
 import { getSession } from "@/lib/auth";
 
 // ── Types ────────────────────────────────────────────────
@@ -181,6 +181,57 @@ export const useFichajeStore = create<FichajeStore>((set, get) => ({
             });
         } else {
             set({ days: buildSeedDays(), status: "out", activeTimesheetId: null, _hydrated: true });
+        }
+
+        // Sync timesheet history from API
+        const session = getSession();
+        if (session?.token && session.token !== "mock") {
+            void (async () => {
+                try {
+                    const timesheets = await apiListTimesheets(session.token, { limit: 200 });
+                    if (!timesheets.length) return;
+
+                    const dayMap = new Map<string, FichajeRecord[]>();
+                    for (const ts of timesheets) {
+                        const dayKey = ts.clock_in.slice(0, 10);
+                        if (!dayMap.has(dayKey)) dayMap.set(dayKey, []);
+                        const records = dayMap.get(dayKey)!;
+                        records.push({
+                            id: `ts-in-${ts.timesheet_id}`,
+                            type: "in",
+                            timestamp: ts.clock_in,
+                            note: ts.notas ?? undefined
+                        });
+                        if (ts.clock_out) {
+                            records.push({
+                                id: `ts-out-${ts.timesheet_id}`,
+                                type: "out",
+                                timestamp: ts.clock_out,
+                                note: ts.notas ?? undefined
+                            });
+                        }
+                    }
+
+                    const apiDays: FichajeDay[] = Array.from(dayMap.entries())
+                        .map(([date, records]) => ({ date, records }))
+                        .sort((a, b) => b.date.localeCompare(a.date));
+
+                    // Check if any timesheet is still open (no clock_out)
+                    const openTs = timesheets.find((ts) => !ts.clock_out);
+
+                    set((s) => {
+                        const next = {
+                            days: apiDays,
+                            status: (openTs ? "in" : "out") as ClockStatus,
+                            activeTimesheetId: openTs?.timesheet_id ?? null
+                        };
+                        saveToStorage(next);
+                        return next;
+                    });
+                } catch {
+                    // Keep local data as fallback
+                }
+            })();
         }
     },
 

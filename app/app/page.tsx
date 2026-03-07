@@ -12,7 +12,7 @@ import {
 } from "@dnd-kit/core";
 import Link from "next/link";
 import { type ElementType, useEffect, useMemo, useState } from "react";
-import { ArrowRight, Clock, GripVertical, UserCheck, UserX, Users } from "lucide-react";
+import { ArrowRight, Briefcase, CheckSquare, Clock, GripVertical, UserCheck, UserX, Users } from "lucide-react";
 import { useTeamContext } from "@/context/TeamContext";
 import { useWorkContext } from "@/context/WorkContext";
 import { getSession } from "@/lib/auth";
@@ -80,6 +80,8 @@ function TeamCard({
 function useTeamStats() {
   const days = useFichajeStore((s) => s.days);
   const myStatus = useFichajeStore((s) => s.status);
+  const getWeekWorkedMinutes = useFichajeStore((s) => s.getWeekWorkedMinutes);
+  const getTodayWorkedMinutes = useFichajeStore((s) => s.getTodayWorkedMinutes);
   const TOTAL_TEAM = 5;
 
   const today = new Date().toISOString().slice(0, 10);
@@ -89,9 +91,13 @@ function useTeamStats() {
   const otrosActivos = myStatus === "in" ? 3 : 2;
   const trabajandoAhora = myStatus === "in" ? otrosActivos : otrosActivos;
   const faltanFichar = TOTAL_TEAM - (myFichadoHoy ? otrosActivos + 1 : otrosActivos);
-  const horasEquipo = myStatus === "in" ? "18h 34m" : "13h 10m";
 
-  return { trabajandoAhora, faltanFichar, horasEquipo, TOTAL_TEAM };
+  const todayMins = getTodayWorkedMinutes();
+  const horasEquipo = `${Math.floor(todayMins / 60)}h ${String(todayMins % 60).padStart(2, "0")}m`;
+  const weekMins = getWeekWorkedMinutes();
+  const horasSemana = `${Math.floor(weekMins / 60)}h ${String(weekMins % 60).padStart(2, "0")}m`;
+
+  return { trabajandoAhora, faltanFichar, horasEquipo, horasSemana, TOTAL_TEAM };
 }
 
 function DraggableTask({
@@ -173,9 +179,9 @@ function TaskDropZone({
 }
 
 export default function DashboardPage() {
-  const { trabajandoAhora, faltanFichar, horasEquipo, TOTAL_TEAM } = useTeamStats();
+  const { trabajandoAhora, faltanFichar, horasEquipo, horasSemana, TOTAL_TEAM } = useTeamStats();
   const { currentTeam } = useTeamContext();
-  const { tasksByTeam } = useWorkContext();
+  const { tasksByTeam, projects } = useWorkContext();
 
   const session = getSession();
   const currentUser = resolveCurrentUser(currentTeam?.id, session?.user);
@@ -354,6 +360,30 @@ export default function DashboardPage() {
           iconColor="text-brand-primary"
           value={horasEquipo}
           label="Horas equipo hoy"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <TeamCard
+          icon={Briefcase}
+          iconBg="bg-brand-secondary/10"
+          iconColor="text-brand-secondary"
+          value={projects.length}
+          label="Proyectos activos"
+        />
+        <TeamCard
+          icon={CheckSquare}
+          iconBg="bg-state-warning/10"
+          iconColor="text-state-warning"
+          value={pendingTasks.length}
+          label="Tareas pendientes"
+        />
+        <TeamCard
+          icon={Clock}
+          iconBg="bg-state-info/10"
+          iconColor="text-state-info"
+          value={horasSemana}
+          label="Horas esta semana"
         />
       </div>
 

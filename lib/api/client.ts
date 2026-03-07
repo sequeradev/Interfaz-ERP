@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE_URL = "http://78.46.181.230:8000";
+const DEFAULT_API_BASE_URL = "https://78.46.181.230";
 
 export function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL;

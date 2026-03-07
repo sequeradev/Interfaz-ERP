@@ -2,12 +2,16 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
+  apiCreateProyecto,
   apiCreateTarea,
+  apiDeleteProyecto,
   apiDeleteTarea,
   apiListProyectos,
   apiListTareasByProyecto,
+  apiUpdateProyecto,
   apiUpdateTarea
 } from "@/lib/api/services";
+import type { ApiProyecto, ApiProyectoCreate, ApiProyectoUpdate } from "@/lib/api/types";
 import { getSession } from "@/lib/auth";
 import { mockFeedPosts } from "@/lib/mockFeed";
 import { mockMeetingsByTeam } from "@/lib/mockMeetings";
@@ -53,7 +57,11 @@ type AddFeedPostInput = {
 };
 
 type WorkContextValue = {
+  projects: ApiProyecto[];
   tasksByTeam: Record<string, Task[]>;
+  createProject: (input: ApiProyectoCreate) => void;
+  updateProject: (projectId: string, patch: ApiProyectoUpdate) => void;
+  deleteProject: (projectId: string) => void;
   createTask: (input: CreateTaskInput) => Task;
   updateTask: (taskId: string, updates: UpdateTaskInput) => void;
   moveTask: (taskId: string, newStatus: TaskStatus, newIndex: number) => void;
@@ -251,6 +259,7 @@ function mapTaskPriorityToApi(value?: TaskPriority): string {
 }
 
 export function WorkProvider({ children }: { children: React.ReactNode }) {
+  const [projects, setProjects] = useState<ApiProyecto[]>([]);
   const [projectIdsByTeam, setProjectIdsByTeam] = useState<Record<string, string[]>>({});
   const [tasksByTeam, setTasksByTeam] = useState<Record<string, Task[]>>(() => {
     if (typeof window !== "undefined") {
@@ -341,6 +350,7 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
         );
 
         if (cancelled) return;
+        setProjects(projects);
         setProjectIdsByTeam(nextProjectMap);
         if (Object.keys(nextTasksByTeam).length > 0) {
           setTasksByTeam(nextTasksByTeam);
@@ -395,6 +405,58 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
     setFeedPosts((previousPosts) => sortByCreatedAtDesc([newPost, ...previousPosts]));
 
     // TODO: Send feed post creation to backend timeline API when available.
+  }, []);
+
+  const createProject = useCallback((input: ApiProyectoCreate) => {
+    const session = getSession();
+    if (!session?.token || session.token === "mock") return;
+
+    void (async () => {
+      try {
+        const created = await apiCreateProyecto(session.token, input);
+        setProjects((prev) => [...prev, created]);
+        if (created.equipo_id) {
+          setProjectIdsByTeam((prev) => ({
+            ...prev,
+            [created.equipo_id as string]: [...(prev[created.equipo_id as string] ?? []), created.proyecto_id]
+          }));
+        }
+      } catch {
+        // Silent fail
+      }
+    })();
+  }, []);
+
+  const updateProject = useCallback((projectId: string, patch: ApiProyectoUpdate) => {
+    setProjects((prev) =>
+      prev.map((p) => (p.proyecto_id === projectId ? { ...p, ...patch } : p))
+    );
+
+    const session = getSession();
+    if (!session?.token || session.token === "mock") return;
+
+    void (async () => {
+      try {
+        await apiUpdateProyecto(session.token, projectId, patch);
+      } catch {
+        // Keep local update
+      }
+    })();
+  }, []);
+
+  const deleteProject = useCallback((projectId: string) => {
+    setProjects((prev) => prev.filter((p) => p.proyecto_id !== projectId));
+
+    const session = getSession();
+    if (!session?.token || session.token === "mock") return;
+
+    void (async () => {
+      try {
+        await apiDeleteProyecto(session.token, projectId);
+      } catch {
+        // Keep local delete
+      }
+    })();
   }, []);
 
   const createTask = useCallback((input: CreateTaskInput): Task => {
@@ -730,7 +792,11 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<WorkContextValue>(
     () => ({
+      projects,
       tasksByTeam,
+      createProject,
+      updateProject,
+      deleteProject,
       createTask,
       updateTask,
       moveTask,
@@ -746,7 +812,11 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
       getMeetingsForTeam
     }),
     [
+      projects,
       tasksByTeam,
+      createProject,
+      updateProject,
+      deleteProject,
       createTask,
       updateTask,
       moveTask,

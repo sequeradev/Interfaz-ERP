@@ -2,20 +2,31 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, CheckSquare, Calendar, FolderOpen, Settings, LogOut, Clock } from "lucide-react";
+import { LayoutDashboard, Users, CheckSquare, Calendar, FolderOpen, Settings, LogOut, Clock, Building2, Globe, UserCog, ScrollText } from "lucide-react";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { useFichajeStore } from "@/lib/store/fichajeStore";
 import { useTeamContext } from "@/context/TeamContext";
 import { cn } from "@/lib/cn";
 import type { MockSession } from "@/lib/auth";
 
-const navItems = [
+type NavItem = {
+  label: string;
+  href: string;
+  icon: typeof Clock;
+  adminOnly?: boolean;
+};
+
+const navItems: NavItem[] = [
   { label: "Fichaje", href: "/app/fichaje", icon: Clock },
   { label: "Inicio", href: "/app", icon: LayoutDashboard },
   { label: "Equipos", href: "/app/teams", icon: Users },
   { label: "Tareas", href: "/app/tasks", icon: CheckSquare },
+  { label: "Clientes", href: "/app/clientes", icon: Building2 },
+  { label: "Mercados", href: "/app/mercados", icon: Globe },
   { label: "Calendario", href: "/app/calendar", icon: Calendar },
   { label: "Documentos", href: "/app/documents", icon: FolderOpen },
+  { label: "Usuarios", href: "/app/usuarios", icon: UserCog, adminOnly: true },
+  { label: "Logs", href: "/app/logs", icon: ScrollText, adminOnly: true },
   { label: "Configuración", href: "#", icon: Settings },
 ];
 
@@ -27,6 +38,8 @@ type LeftSidebarProps = {
 export function LeftSidebar({ session, onSignOut }: LeftSidebarProps) {
   const pathname = usePathname();
   const { currentTeam } = useTeamContext();
+  const isAdmin = session.user.role === "admin";
+  const visibleItems = navItems.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <aside className="md:fixed md:inset-y-0 md:left-0 md:z-20 md:flex md:w-[260px] md:flex-col md:border-r md:border-line md:bg-surface md:px-4 md:py-5">
@@ -51,7 +64,7 @@ export function LeftSidebar({ session, onSignOut }: LeftSidebarProps) {
       {/* Mobile nav */}
       <nav className="border-b border-line bg-surface px-4 py-2 md:hidden" aria-label="Navegación móvil">
         <ul className="flex flex-wrap gap-1 pb-1">
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = item.icon;
             const isActive =
               item.href !== "#" &&
@@ -91,7 +104,7 @@ export function LeftSidebar({ session, onSignOut }: LeftSidebarProps) {
         {/* Nav */}
         <nav aria-label="Navegación principal" className="flex-1">
           <ul className="space-y-0.5">
-            {navItems.map((item) => {
+            {visibleItems.map((item) => {
               const Icon = item.icon;
               const isActive =
                 item.href !== "#" &&

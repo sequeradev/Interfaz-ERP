@@ -1,7 +1,15 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { apiCreateEquipo, apiListEquipos, apiListMiembros } from "@/lib/api/services";
+import {
+  apiAddMiembro,
+  apiCreateEquipo,
+  apiDeleteEquipo,
+  apiListEquipos,
+  apiListMiembros,
+  apiRemoveMiembro,
+  apiUpdateEquipo
+} from "@/lib/api/services";
 import { getSession } from "@/lib/auth";
 import { mockTeams } from "@/lib/mockData";
 import type { Team } from "@/lib/types";
@@ -16,6 +24,10 @@ type TeamContextValue = {
   setCurrentTeam: (team: Team) => void;
   teams: Team[];
   addTeam: (input: CreateTeamInput) => Team;
+  updateTeam: (teamId: string, patch: { name?: string; description?: string }) => void;
+  deleteTeam: (teamId: string) => void;
+  addMember: (equipoId: string, usuarioId: string, rol?: string) => void;
+  removeMember: (equipoId: string, usuarioId: string) => void;
 };
 
 const TeamContext = createContext<TeamContextValue | undefined>(undefined);
@@ -164,14 +176,110 @@ export function TeamProvider({ children }: { children: React.ReactNode }) {
     return localTeam;
   }, []);
 
+  const updateTeam = useCallback((teamId: string, patch: { name?: string; description?: string }) => {
+    setTeams((prev) =>
+      prev.map((team) =>
+        team.id === teamId
+          ? {
+              ...team,
+              name: patch.name?.trim() || team.name,
+              description: patch.description?.trim() || team.description
+            }
+          : team
+      )
+    );
+
+    const session = getSession();
+    if (session?.token && session.token !== "mock") {
+      void (async () => {
+        try {
+          await apiUpdateEquipo(session.token, teamId, {
+            nombre: patch.name?.trim(),
+            descripcion: patch.description?.trim()
+          });
+        } catch {
+          // Keep local update if API fails.
+        }
+      })();
+    }
+  }, []);
+
+  const deleteTeam = useCallback((teamId: string) => {
+    setTeams((prev) => prev.filter((team) => team.id !== teamId));
+    setCurrentTeam((prev) => (prev?.id === teamId ? null : prev));
+
+    const session = getSession();
+    if (session?.token && session.token !== "mock") {
+      void (async () => {
+        try {
+          await apiDeleteEquipo(session.token, teamId);
+        } catch {
+          // Keep local delete if API fails.
+        }
+      })();
+    }
+  }, []);
+
+  const addMember = useCallback((equipoId: string, usuarioId: string, rol = "member") => {
+    setTeams((prev) =>
+      prev.map((team) =>
+        team.id === equipoId ? { ...team, memberCount: team.memberCount + 1 } : team
+      )
+    );
+
+    const session = getSession();
+    if (session?.token && session.token !== "mock") {
+      void (async () => {
+        try {
+          await apiAddMiembro(session.token, equipoId, { usuario_id: usuarioId, rol_equipo: rol });
+        } catch {
+          // Revert optimistic update
+          setTeams((prev) =>
+            prev.map((team) =>
+              team.id === equipoId ? { ...team, memberCount: Math.max(0, team.memberCount - 1) } : team
+            )
+          );
+        }
+      })();
+    }
+  }, []);
+
+  const removeMember = useCallback((equipoId: string, usuarioId: string) => {
+    setTeams((prev) =>
+      prev.map((team) =>
+        team.id === equipoId ? { ...team, memberCount: Math.max(0, team.memberCount - 1) } : team
+      )
+    );
+
+    const session = getSession();
+    if (session?.token && session.token !== "mock") {
+      void (async () => {
+        try {
+          await apiRemoveMiembro(session.token, equipoId, usuarioId);
+        } catch {
+          // Revert optimistic update
+          setTeams((prev) =>
+            prev.map((team) =>
+              team.id === equipoId ? { ...team, memberCount: team.memberCount + 1 } : team
+            )
+          );
+        }
+      })();
+    }
+  }, []);
+
   const value = useMemo<TeamContextValue>(
     () => ({
       currentTeam,
       setCurrentTeam,
       teams,
-      addTeam
+      addTeam,
+      updateTeam,
+      deleteTeam,
+      addMember,
+      removeMember
     }),
-    [currentTeam, teams, addTeam]
+    [currentTeam, teams, addTeam, updateTeam, deleteTeam, addMember, removeMember]
   );
 
   return <TeamContext.Provider value={value}>{children}</TeamContext.Provider>;

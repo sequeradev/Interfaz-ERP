@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, CheckSquare, Calendar, FolderOpen, Settings, LogOut, Clock, Building2, Globe, UserCog, ScrollText } from "lucide-react";
+import { LayoutDashboard, Users, CheckSquare, Calendar, FolderOpen, Settings, LogOut, Clock, Building2, FolderKanban, UserCog, ScrollText } from "lucide-react";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { useFichajeStore } from "@/lib/store/fichajeStore";
 import { useTeamContext } from "@/context/TeamContext";
@@ -22,7 +22,7 @@ const navItems: NavItem[] = [
   { label: "Equipos", href: "/app/teams", icon: Users },
   { label: "Tareas", href: "/app/tasks", icon: CheckSquare },
   { label: "Clientes", href: "/app/clientes", icon: Building2 },
-  { label: "Mercados", href: "/app/mercados", icon: Globe },
+  { label: "Proyectos", href: "/app/proyectos", icon: FolderKanban },
   { label: "Calendario", href: "/app/calendar", icon: Calendar },
   { label: "Documentos", href: "/app/documents", icon: FolderOpen },
   { label: "Usuarios", href: "/app/usuarios", icon: UserCog, adminOnly: true },

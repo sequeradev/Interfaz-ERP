@@ -11,15 +11,16 @@ import {
   useSensors
 } from "@dnd-kit/core";
 import Link from "next/link";
-import { type ElementType, useEffect, useMemo, useState } from "react";
-import { ArrowRight, Briefcase, CheckSquare, Clock, GripVertical, UserCheck, UserX, Users } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, Clock, GripVertical } from "lucide-react";
+import { TaskCheckoutModal, type TaskCheckoutValues } from "@/components/tasks/TaskCheckoutModal";
 import { useTeamContext } from "@/context/TeamContext";
 import { useWorkContext } from "@/context/WorkContext";
 import { getSession } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { resolveCurrentUser } from "@/lib/mockUsers";
-import { minutesBetween, useFichajeStore } from "@/lib/store/fichajeStore";
-import type { Task } from "@/lib/types";
+import { useFichajeStore } from "@/lib/store/fichajeStore";
+import type { Task, TaskActivity } from "@/lib/types";
 
 const QUICK_DROPZONE_ID = "quick-task-dropzone";
 
@@ -51,53 +52,6 @@ function DashClock() {
       </p>
     </div>
   );
-}
-
-function TeamCard({
-  icon: Icon,
-  iconBg,
-  iconColor,
-  value,
-  label,
-}: {
-  icon: ElementType;
-  iconBg: string;
-  iconColor: string;
-  value: string | number;
-  label: string;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-3 rounded-3xl border border-line bg-surface p-6 shadow-soft sm:p-8">
-      <div className={`flex h-16 w-16 items-center justify-center rounded-2xl ${iconBg} ${iconColor}`}>
-        <Icon size={32} />
-      </div>
-      <p className="font-mono text-5xl font-bold text-text-primary sm:text-6xl">{value}</p>
-      <p className="text-center text-base font-medium text-text-secondary sm:text-lg">{label}</p>
-    </div>
-  );
-}
-
-function useTeamStats() {
-  const days = useFichajeStore((s) => s.days);
-  const myStatus = useFichajeStore((s) => s.status);
-  const getWeekWorkedMinutes = useFichajeStore((s) => s.getWeekWorkedMinutes);
-  const getTodayWorkedMinutes = useFichajeStore((s) => s.getTodayWorkedMinutes);
-  const TOTAL_TEAM = 5;
-
-  const today = new Date().toISOString().slice(0, 10);
-  const todayDay = days.find((d) => d.date === today);
-  const myFichadoHoy = todayDay?.records.some((r) => r.type === "in") ?? false;
-
-  const otrosActivos = myStatus === "in" ? 3 : 2;
-  const trabajandoAhora = myStatus === "in" ? otrosActivos : otrosActivos;
-  const faltanFichar = TOTAL_TEAM - (myFichadoHoy ? otrosActivos + 1 : otrosActivos);
-
-  const todayMins = getTodayWorkedMinutes();
-  const horasEquipo = `${Math.floor(todayMins / 60)}h ${String(todayMins % 60).padStart(2, "0")}m`;
-  const weekMins = getWeekWorkedMinutes();
-  const horasSemana = `${Math.floor(weekMins / 60)}h ${String(weekMins % 60).padStart(2, "0")}m`;
-
-  return { trabajandoAhora, faltanFichar, horasEquipo, horasSemana, TOTAL_TEAM };
 }
 
 function DraggableTask({
@@ -179,9 +133,8 @@ function TaskDropZone({
 }
 
 export default function DashboardPage() {
-  const { trabajandoAhora, faltanFichar, horasEquipo, horasSemana, TOTAL_TEAM } = useTeamStats();
   const { currentTeam } = useTeamContext();
-  const { tasksByTeam, projects } = useWorkContext();
+  const { tasksByTeam, updateTask, addFeedEvent } = useWorkContext();
 
   const session = getSession();
   const currentUser = resolveCurrentUser(currentTeam?.id, session?.user);
@@ -193,6 +146,7 @@ export default function DashboardPage() {
   const getTodayRecords = useFichajeStore((s) => s.getTodayRecords);
 
   const [selectedTaskId, setSelectedTaskId] = useState<string>("");
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -206,18 +160,7 @@ export default function DashboardPage() {
   const quickTasks = useMemo(() => {
     const assignedToMe = pendingTasks.filter((task) => task.assigneeId === currentUser?.id);
     const unassigned = pendingTasks.filter((task) => !task.assigneeId);
-    const all = [...assignedToMe, ...unassigned, ...pendingTasks];
-
-    const seen = new Set<string>();
-    const unique = all.filter((task) => {
-      if (seen.has(task.id)) {
-        return false;
-      }
-      seen.add(task.id);
-      return true;
-    });
-
-    return unique.slice(0, 8);
+    return [...assignedToMe, ...unassigned].slice(0, 8);
   }, [currentUser?.id, pendingTasks]);
 
   useEffect(() => {
@@ -257,47 +200,6 @@ export default function DashboardPage() {
     return teamTasks.find((task) => task.id === activeEntry.taskId) ?? null;
   }, [activeEntry?.taskId, teamTasks]);
 
-  const workedByTaskToday = useMemo(() => {
-    const sorted = [...todayRecords].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
-
-    const totals = new Map<string, { taskTitle: string; minutes: number }>();
-    let lastIn: (typeof sorted)[number] | null = null;
-
-    for (const record of sorted) {
-      if (record.type === "in") {
-        lastIn = record;
-        continue;
-      }
-
-      if (record.type === "out" && lastIn) {
-        const taskKey = lastIn.taskId ?? "sin-tarea";
-        const taskTitle = lastIn.taskTitle ?? "Sin tarea";
-        const minutes = minutesBetween(lastIn.timestamp, record.timestamp);
-        const previous = totals.get(taskKey);
-        totals.set(taskKey, {
-          taskTitle,
-          minutes: (previous?.minutes ?? 0) + Math.max(0, minutes)
-        });
-        lastIn = null;
-      }
-    }
-
-    if (lastIn) {
-      const taskKey = lastIn.taskId ?? "sin-tarea";
-      const taskTitle = lastIn.taskTitle ?? "Sin tarea";
-      const minutes = minutesBetween(lastIn.timestamp, new Date().toISOString());
-      const previous = totals.get(taskKey);
-      totals.set(taskKey, {
-        taskTitle,
-        minutes: (previous?.minutes ?? 0) + Math.max(0, minutes)
-      });
-    }
-
-    return [...totals.values()].sort((a, b) => b.minutes - a.minutes);
-  }, [todayRecords]);
-
   function handleDragEnd(event: DragEndEvent) {
     if (String(event.over?.id) !== QUICK_DROPZONE_ID) {
       return;
@@ -313,6 +215,36 @@ export default function DashboardPage() {
         return;
       }
 
+      if (selectedTask.assigneeId && selectedTask.assigneeId !== currentUser?.id) {
+        window.alert("No puedes fichar una tarea asignada a otro miembro del equipo.");
+        return;
+      }
+
+      const startedAt = new Date().toISOString();
+      const startActivity: TaskActivity = {
+        id: `task-activity-${Date.now()}`,
+        type: "started",
+        message: "Trabajo iniciado desde el panel de fichaje rapido.",
+        author: currentUser?.name ?? session?.user.name ?? "Usuario Demo",
+        authorId: currentUser?.id,
+        createdAt: startedAt
+      };
+
+      updateTask(selectedTask.id, {
+        assigneeId: currentUser?.id,
+        status: "in_progress",
+        activity: [...selectedTask.activity, startActivity]
+      });
+
+      if (currentTeam) {
+        addFeedEvent({
+          teamId: currentTeam.id,
+          content: `Tarea en progreso: ${selectedTask.title}`,
+          author: currentUser?.name ?? session?.user.name ?? "Usuario Demo",
+          eventType: "system"
+        });
+      }
+
       ficharEntrada({
         taskId: selectedTask.id,
         taskTitle: selectedTask.title,
@@ -322,10 +254,58 @@ export default function DashboardPage() {
       return;
     }
 
+    setCheckoutOpen(true);
+  }
+
+  function handleCheckoutSubmit(values: TaskCheckoutValues) {
+    if (!activeTask) {
+      ficharSalida({
+        note: values.note,
+        memberId: currentUser?.id,
+        memberName: currentUser?.name
+      });
+      setCheckoutOpen(false);
+      return;
+    }
+
+    const finishedAt = new Date().toISOString();
+    const activityMessage =
+      values.note ||
+      (values.resolution === "done"
+        ? "Trabajo completado y fichaje cerrado."
+        : "Trabajo pausado para retomarlo mas tarde.");
+    const taskActivity: TaskActivity = {
+      id: `task-activity-${Date.now()}`,
+      type: values.resolution === "done" ? "completed" : "paused",
+      message: activityMessage,
+      author: currentUser?.name ?? session?.user.name ?? "Usuario Demo",
+      authorId: currentUser?.id,
+      createdAt: finishedAt
+    };
+
+    updateTask(activeTask.id, {
+      status: values.resolution,
+      activity: [...activeTask.activity, taskActivity]
+    });
+
+    if (currentTeam) {
+      addFeedEvent({
+        teamId: currentTeam.id,
+        content:
+          values.resolution === "done"
+            ? `Tarea completada: ${activeTask.title}`
+            : `Tarea pausada para continuar despues: ${activeTask.title}`,
+        author: currentUser?.name ?? session?.user.name ?? "Usuario Demo",
+        eventType: values.resolution === "done" ? "task_completed" : "system"
+      });
+    }
+
     ficharSalida({
+      note: values.note,
       memberId: currentUser?.id,
       memberName: currentUser?.name
     });
+    setCheckoutOpen(false);
   }
 
   return (
@@ -336,54 +316,6 @@ export default function DashboardPage() {
 
       <div className="rounded-3xl border border-line bg-surface p-8 shadow-soft">
         <DashClock />
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <TeamCard
-          icon={UserCheck}
-          iconBg="bg-state-success/10"
-          iconColor="text-state-success"
-          value={`${trabajandoAhora}/${TOTAL_TEAM}`}
-          label="Trabajando ahora"
-        />
-        <TeamCard
-          icon={UserX}
-          iconBg={faltanFichar > 0 ? "bg-state-error/10" : "bg-surface2"}
-          iconColor={faltanFichar > 0 ? "text-state-error" : "text-text-muted"}
-          value={faltanFichar}
-          label="Faltan fichar"
-        />
-        <TeamCard
-          icon={Clock}
-          iconBg="bg-brand-primary/10"
-          iconColor="text-brand-primary"
-          value={horasEquipo}
-          label="Horas equipo hoy"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <TeamCard
-          icon={Briefcase}
-          iconBg="bg-brand-secondary/10"
-          iconColor="text-brand-secondary"
-          value={projects.length}
-          label="Proyectos activos"
-        />
-        <TeamCard
-          icon={CheckSquare}
-          iconBg="bg-state-warning/10"
-          iconColor="text-state-warning"
-          value={pendingTasks.length}
-          label="Tareas pendientes"
-        />
-        <TeamCard
-          icon={Clock}
-          iconBg="bg-state-info/10"
-          iconColor="text-state-info"
-          value={horasSemana}
-          label="Horas esta semana"
-        />
       </div>
 
       <div
@@ -465,8 +397,9 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={handleQuickFichaje}
+              disabled={status === "out" && !selectedTask}
               className={cn(
-                "mt-4 flex w-full items-center justify-center gap-3 rounded-2xl px-5 py-4 text-xl font-extrabold text-white transition-all",
+                "mt-4 flex w-full items-center justify-center gap-3 rounded-2xl px-5 py-4 text-xl font-extrabold text-white transition-all disabled:cursor-not-allowed disabled:opacity-50",
                 status === "in" ? "bg-state-error hover:opacity-90" : "bg-state-success hover:opacity-90"
               )}
             >
@@ -485,53 +418,12 @@ export default function DashboardPage() {
         </div>
       </DndContext>
 
-      {workedByTaskToday.length > 0 ? (
-        <div className="rounded-2xl border border-line bg-surface p-5 shadow-soft">
-          <h2 className="text-sm font-semibold text-text-secondary">Tiempo de hoy por tarea</h2>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {workedByTaskToday.map((item) => (
-              <span
-                key={item.taskTitle}
-                className="inline-flex items-center gap-2 rounded-full border border-line bg-surface2 px-3 py-1.5 text-sm"
-              >
-                <span className="font-medium text-text-primary">{item.taskTitle}</span>
-                <span className="text-text-secondary">
-                  {Math.floor(item.minutes / 60)}h {String(item.minutes % 60).padStart(2, "0")}m
-                </span>
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="rounded-2xl border border-line bg-surface p-5 shadow-soft">
-        <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-text-secondary">
-          <Users size={15} />
-          Equipo ({TOTAL_TEAM} personas)
-        </h2>
-        <div className="flex flex-wrap gap-3">
-          {[
-            { name: "Ana G.", active: true },
-            { name: "Carlos M.", active: true },
-            { name: "Laura P.", active: status === "in" },
-            { name: "Tu", active: status === "in" },
-            { name: "Ruben T.", active: false },
-          ].map((member) => (
-            <div
-              key={member.name}
-              className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${member.active
-                ? "border-state-success/30 bg-state-success/8 text-state-success"
-                : "border-line bg-surface2 text-text-muted"
-                }`}
-            >
-              <span
-                className={`h-2 w-2 rounded-full ${member.active ? "animate-pulse bg-state-success" : "bg-text-muted"}`}
-              />
-              {member.name}
-            </div>
-          ))}
-        </div>
-      </div>
+      <TaskCheckoutModal
+        open={checkoutOpen}
+        taskTitle={activeTask?.title ?? activeEntry?.taskTitle}
+        onClose={() => setCheckoutOpen(false)}
+        onSubmit={handleCheckoutSubmit}
+      />
     </div>
   );
 }

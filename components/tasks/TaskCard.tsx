@@ -22,6 +22,8 @@ function formatPriority(priority: TaskPriority): string {
 }
 
 export function TaskCard({ task, assignee, onOpen, isOverdue, className, ...props }: TaskCardProps) {
+  const latestActivity = task.activity[task.activity.length - 1];
+
   return (
     <button
       type="button"
@@ -33,6 +35,12 @@ export function TaskCard({ task, assignee, onOpen, isOverdue, className, ...prop
       {...props}
     >
       <p className="text-lg font-medium text-text-primary">{task.title}</p>
+
+      {latestActivity ? (
+        <p className="mt-2 line-clamp-2 text-sm text-text-secondary">
+          {latestActivity.author}: {latestActivity.message}
+        </p>
+      ) : null}
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <span className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", priorityStyles[task.priority])}>

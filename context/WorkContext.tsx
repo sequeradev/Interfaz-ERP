@@ -15,7 +15,7 @@ import type { ApiProyecto, ApiProyectoCreate, ApiProyectoUpdate } from "@/lib/ap
 import { getSession } from "@/lib/auth";
 import { mockFeedPosts } from "@/lib/mockFeed";
 import { mockMeetingsByTeam } from "@/lib/mockMeetings";
-import type { FeedEvent, FeedPost, FeedScope, Meeting, Task, TaskPriority, TaskStatus } from "@/lib/types";
+import type { FeedEvent, FeedPost, FeedScope, Meeting, Task, TaskActivity, TaskPriority, TaskStatus } from "@/lib/types";
 
 type CreateTaskInput = {
   teamId: string;
@@ -28,7 +28,7 @@ type CreateTaskInput = {
 };
 
 type UpdateTaskInput = Partial<
-  Pick<Task, "title" | "description" | "assigneeId" | "dueDate" | "priority" | "status">
+  Pick<Task, "title" | "description" | "assigneeId" | "dueDate" | "priority" | "status" | "activity">
 >;
 
 type CreateMeetingInput = Omit<Meeting, "id" | "createdAt"> & {
@@ -88,7 +88,8 @@ const initialTasksByTeam: Record<string, Task[]> = {
       priority: "high",
       assigneeId: "user-1",
       dueDate: "2026-03-08",
-      createdAt: "2026-03-04T08:20:00.000Z"
+      createdAt: "2026-03-04T08:20:00.000Z",
+      activity: []
     },
     {
       id: "task-2",
@@ -99,7 +100,8 @@ const initialTasksByTeam: Record<string, Task[]> = {
       priority: "medium",
       assigneeId: "user-2",
       dueDate: "2026-03-06",
-      createdAt: "2026-03-04T07:40:00.000Z"
+      createdAt: "2026-03-04T07:40:00.000Z",
+      activity: []
     },
     {
       id: "task-3",
@@ -109,7 +111,8 @@ const initialTasksByTeam: Record<string, Task[]> = {
       priority: "low",
       assigneeId: "user-3",
       dueDate: "2026-03-04",
-      createdAt: "2026-03-03T14:00:00.000Z"
+      createdAt: "2026-03-03T14:00:00.000Z",
+      activity: []
     }
   ],
   "team-2": [
@@ -122,7 +125,8 @@ const initialTasksByTeam: Record<string, Task[]> = {
       priority: "high",
       assigneeId: "user-5",
       dueDate: "2026-03-09",
-      createdAt: "2026-03-04T08:35:00.000Z"
+      createdAt: "2026-03-04T08:35:00.000Z",
+      activity: []
     },
     {
       id: "task-5",
@@ -132,7 +136,8 @@ const initialTasksByTeam: Record<string, Task[]> = {
       priority: "medium",
       assigneeId: "user-7",
       dueDate: "2026-03-07",
-      createdAt: "2026-03-04T08:10:00.000Z"
+      createdAt: "2026-03-04T08:10:00.000Z",
+      activity: []
     }
   ],
   "team-3": [
@@ -144,7 +149,8 @@ const initialTasksByTeam: Record<string, Task[]> = {
       priority: "medium",
       assigneeId: "user-8",
       dueDate: "2026-03-11",
-      createdAt: "2026-03-04T08:00:00.000Z"
+      createdAt: "2026-03-04T08:00:00.000Z",
+      activity: []
     },
     {
       id: "task-7",
@@ -154,7 +160,8 @@ const initialTasksByTeam: Record<string, Task[]> = {
       priority: "low",
       assigneeId: "user-9",
       dueDate: "2026-03-04",
-      createdAt: "2026-03-03T16:20:00.000Z"
+      createdAt: "2026-03-03T16:20:00.000Z",
+      activity: []
     }
   ]
 };
@@ -200,6 +207,19 @@ function buildId(prefix: string): string {
     return `${prefix}-${crypto.randomUUID()}`;
   }
   return `${prefix}-${Date.now()}`;
+}
+
+function normalizeTask(task: Task): Task {
+  return {
+    ...task,
+    activity: task.activity ?? []
+  };
+}
+
+function normalizeTasksByTeam(tasksByTeam: Record<string, Task[]>): Record<string, Task[]> {
+  return Object.fromEntries(
+    Object.entries(tasksByTeam).map(([teamId, tasks]) => [teamId, tasks.map(normalizeTask)])
+  );
 }
 
 function formatMeetingMoment(dateIso: string): string {
@@ -264,9 +284,9 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
   const [tasksByTeam, setTasksByTeam] = useState<Record<string, Task[]>>(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("flowops_tasks");
-      if (stored) return JSON.parse(stored);
+      if (stored) return normalizeTasksByTeam(JSON.parse(stored) as Record<string, Task[]>);
     }
-    return initialTasksByTeam;
+    return normalizeTasksByTeam(initialTasksByTeam);
   });
   const [feedPosts, setFeedPosts] = useState<FeedPost[]>(() => {
     if (typeof window !== "undefined") {
@@ -342,7 +362,8 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
               priority: mapTaskPriorityFromApi(task.prioridad),
               assigneeId: task.asignado_a || undefined,
               dueDate: task.fecha_vencimiento || undefined,
-              createdAt: task.created_at || new Date().toISOString()
+              createdAt: task.created_at || new Date().toISOString(),
+              activity: []
             }));
 
             nextTasksByTeam[project.equipo_id] = [...(nextTasksByTeam[project.equipo_id] ?? []), ...mappedTasks];
@@ -353,7 +374,7 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
         setProjects(projects);
         setProjectIdsByTeam(nextProjectMap);
         if (Object.keys(nextTasksByTeam).length > 0) {
-          setTasksByTeam(nextTasksByTeam);
+          setTasksByTeam(normalizeTasksByTeam(nextTasksByTeam));
         }
       } catch {
         // Keep local tasks as fallback.
@@ -461,7 +482,7 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
 
   const createTask = useCallback((input: CreateTaskInput): Task => {
     const createdAt = new Date().toISOString();
-    const optimisticTask: Task = {
+      const optimisticTask: Task = {
       id: buildId("task"),
       teamId: input.teamId,
       title: input.title.trim(),
@@ -470,7 +491,8 @@ export function WorkProvider({ children }: { children: React.ReactNode }) {
       priority: input.priority ?? "medium",
       assigneeId: input.assigneeId,
       dueDate: input.dueDate,
-      createdAt
+      createdAt,
+      activity: []
     };
 
     setTasksByTeam((previousTasks) => {

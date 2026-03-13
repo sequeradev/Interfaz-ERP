@@ -208,6 +208,32 @@ export function TaskDrawer({ open, task, users, canAssign = true, onClose, onSav
               </select>
             </div>
           </div>
+
+          <div className="space-y-2 rounded-xl border border-line bg-surface2 p-4">
+            <h3 className="text-sm font-semibold text-text-primary">Seguimiento visible para el equipo</h3>
+            {task.activity.length > 0 ? (
+              <div className="space-y-3">
+                {[...task.activity].reverse().map((item) => (
+                  <div key={item.id} className="rounded-xl border border-line bg-white px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-medium text-text-primary">{item.author}</span>
+                      <span className="text-xs text-text-secondary">
+                        {new Date(item.createdAt).toLocaleString("es-ES", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit"
+                        })}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-text-secondary">{item.message}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-text-secondary">Todavia no hay indicaciones registradas para esta tarea.</p>
+            )}
+          </div>
         </div>
 
         <div className="mt-6 flex items-center justify-between gap-3">

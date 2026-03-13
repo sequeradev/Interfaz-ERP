@@ -19,6 +19,16 @@ export type User = {
 
 export type TaskStatus = "todo" | "in_progress" | "done";
 export type TaskPriority = "low" | "medium" | "high";
+export type TaskActivityType = "started" | "paused" | "completed" | "note";
+
+export type TaskActivity = {
+  id: string;
+  type: TaskActivityType;
+  message: string;
+  author: string;
+  authorId?: string;
+  createdAt: string;
+};
 
 export type Task = {
   id: string;
@@ -30,6 +40,7 @@ export type Task = {
   assigneeId?: string;
   dueDate?: string;
   createdAt: string;
+  activity: TaskActivity[];
 };
 
 export type Meeting = {

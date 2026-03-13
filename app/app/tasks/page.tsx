@@ -172,8 +172,16 @@ export default function TasksPage() {
     }
   }, [assignmentTargetUserId, assignmentTaskId, assignableTasks, teamUsers]);
 
+  const visibleTasks = useMemo(() => {
+    if (canManageAssignments) {
+      return teamTasks;
+    }
+
+    return teamTasks.filter((task) => !task.assigneeId || task.assigneeId === currentUser?.id);
+  }, [canManageAssignments, currentUser?.id, teamTasks]);
+
   const filteredTasks = useMemo(() => {
-    return teamTasks.filter((task) => {
+    return visibleTasks.filter((task) => {
       const matchesSearch =
         task.title.toLowerCase().includes(search.toLowerCase()) ||
         (task.description ?? "").toLowerCase().includes(search.toLowerCase());
@@ -188,7 +196,7 @@ export default function TasksPage() {
 
       return matchesSearch && matchesAssignee && matchesPriority && matchesDueFilter;
     });
-  }, [teamTasks, search, assigneeFilter, priorityFilter, dueFilter]);
+  }, [visibleTasks, search, assigneeFilter, priorityFilter, dueFilter]);
 
   const tasksByStatus = useMemo(() => {
     return {

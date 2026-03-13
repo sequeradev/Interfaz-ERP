@@ -1,270 +1,95 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, LogIn, LogOut, Pencil, Trash2 } from "lucide-react";
-import {
-  formatMinutes,
-  formatTime,
-  getStatusColor,
-  useFichajeStore,
-} from "@/lib/store/fichajeStore";
+import { useEffect, useMemo, useState } from "react";
+import { CalendarDays, CheckCircle2, LogOut, PlayCircle, SquareStack, TimerReset } from "lucide-react";
+import { TaskCheckoutModal, type TaskCheckoutValues } from "@/components/tasks/TaskCheckoutModal";
+import { Button } from "@/components/ui/button";
+import { useTeamContext } from "@/context/TeamContext";
+import { useWorkContext } from "@/context/WorkContext";
+import { getSession } from "@/lib/auth";
 import { cn } from "@/lib/cn";
+import { getUsersByTeam, resolveCurrentUser } from "@/lib/mockUsers";
+import { formatMinutes, formatTime, minutesBetween, useFichajeStore } from "@/lib/store/fichajeStore";
+import type { Task, TaskActivity } from "@/lib/types";
 
-function HugeClock() {
-  const [time, setTime] = useState<Date | null>(null);
-
-  useEffect(() => {
-    setTime(new Date());
-    const id = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  if (!time) {
-    return (
-      <div
-        className="flex items-baseline justify-center gap-1 select-none font-mono font-bold leading-none tracking-tight"
-        aria-live="polite"
-        aria-label="Cargando hora"
-      >
-        <span className="text-[10rem] text-text-muted sm:text-[12rem] xl:text-[14rem]">--</span>
-        <span className="text-[5rem] text-text-muted/50 sm:text-[6rem] xl:text-[7rem]">:--</span>
-      </div>
-    );
-  }
-
-  const hm = time.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
-  const ss = time.getSeconds().toString().padStart(2, "0");
-
-  return (
-    <div
-      className="flex items-baseline justify-center gap-1 select-none font-mono font-bold leading-none tracking-tight"
-      aria-live="polite"
-      aria-label="Hora actual"
-    >
-      <span className="text-[10rem] text-text-primary sm:text-[12rem] xl:text-[14rem]">{hm}</span>
-      <span className="animate-pulse text-[5rem] text-text-muted sm:text-[6rem] xl:text-[7rem]">:{ss}</span>
-    </div>
-  );
+function getPriorityLabel(priority: Task["priority"]): string {
+  if (priority === "high") return "Alta";
+  if (priority === "low") return "Baja";
+  return "Media";
 }
 
-function BigStat({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string;
-  color?: "green" | "red" | "yellow" | "default";
-}) {
-  const valueColor =
-    color === "green"
-      ? "text-state-success"
-      : color === "red"
-        ? "text-state-error"
-        : color === "yellow"
-          ? "text-state-warning"
-          : "text-text-primary";
-
-  return (
-    <div className="flex flex-col items-center rounded-3xl border border-line bg-surface p-6 shadow-soft sm:p-8">
-      <p className={`font-mono text-5xl font-bold sm:text-6xl xl:text-7xl ${valueColor}`}>{value}</p>
-      <p className="mt-2 text-base font-medium text-text-secondary sm:text-lg">{label}</p>
-    </div>
-  );
+function getStatusLabel(status: Task["status"]): string {
+  if (status === "in_progress") return "En progreso";
+  if (status === "done") return "Completada";
+  return "Pendiente";
 }
-
-function TodayHistory() {
-  const getTodayRecords = useFichajeStore((s) => s.getTodayRecords);
-  const deleteRecord = useFichajeStore((s) => s.deleteRecord);
-  const editRecord = useFichajeStore((s) => s.editRecord);
-  const [open, setOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState("");
-
-  const records = [...getTodayRecords()].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
-  const today = new Date().toISOString().slice(0, 10);
-
-  if (records.length === 0) {
-    return null;
+function getTaskCardTone(task: Task): string {
+  if (task.status === "in_progress") {
+    return "border-brand-primary/30 bg-brand-primary/5";
   }
-
-  const pairs: Array<{ in?: (typeof records)[0]; out?: (typeof records)[0] }> = [];
-  for (const record of records) {
-    if (record.type === "in") {
-      pairs.push({ in: record });
-    } else if (pairs.length > 0 && !pairs[pairs.length - 1].out) {
-      pairs[pairs.length - 1].out = record;
-    }
-  }
-
-  function startEdit(record: (typeof records)[0]) {
-    setEditingId(record.id);
-    setEditValue(record.timestamp.slice(0, 16));
-  }
-
-  function saveEdit(id: string) {
-    if (!editValue) {
-      return;
-    }
-
-    editRecord(today, id, new Date(editValue).toISOString());
-    setEditingId(null);
-  }
-
-  return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-surface shadow-soft">
-      <button
-        type="button"
-        onClick={() => setOpen((previous) => !previous)}
-        className="flex w-full items-center justify-between px-5 py-4 text-base font-semibold text-text-primary transition-colors hover:bg-surface2"
-        aria-expanded={open}
-      >
-        Mis fichajes de hoy ({records.length} registros)
-        {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-      </button>
-
-      {open ? (
-        <div className="divide-y divide-line border-t border-line">
-          {pairs.map((pair, index) => (
-            <div key={index} className="flex flex-wrap items-center gap-4 px-5 py-3 text-sm">
-              {pair.in ? (
-                <div className="flex items-center gap-1.5">
-                  <LogIn size={14} className="text-state-success" />
-                  {editingId === pair.in.id ? (
-                    <input
-                      type="datetime-local"
-                      value={editValue}
-                      onChange={(event) => setEditValue(event.target.value)}
-                      onBlur={() => saveEdit(pair.in!.id)}
-                      autoFocus
-                      className="rounded border border-line bg-surface2 px-2 py-0.5 text-xs"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => startEdit(pair.in!)}
-                      className="font-mono font-medium text-text-primary hover:text-brand-primary"
-                    >
-                      {formatTime(pair.in.timestamp)}
-                    </button>
-                  )}
-                </div>
-              ) : null}
-
-              {pair.out ? (
-                <>
-                  <span className="text-text-muted">-&gt;</span>
-                  <div className="flex items-center gap-1.5">
-                    <LogOut size={14} className="text-state-error" />
-                    {editingId === pair.out.id ? (
-                      <input
-                        type="datetime-local"
-                        value={editValue}
-                        onChange={(event) => setEditValue(event.target.value)}
-                        onBlur={() => saveEdit(pair.out!.id)}
-                        autoFocus
-                        className="rounded border border-line bg-surface2 px-2 py-0.5 text-xs"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => startEdit(pair.out!)}
-                        className="font-mono font-medium text-text-primary hover:text-brand-primary"
-                      >
-                        {formatTime(pair.out.timestamp)}
-                      </button>
-                    )}
-                  </div>
-                </>
-              ) : null}
-
-              {!pair.out ? (
-                <span className="flex items-center gap-1 text-xs text-state-success">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-state-success" />
-                  En curso
-                </span>
-              ) : null}
-
-              {pair.in?.taskTitle ? (
-                <span className="rounded-full border border-brand-primary/30 bg-brand-primary/10 px-2 py-0.5 text-xs font-medium text-brand-primary">
-                  {pair.in.taskTitle}
-                </span>
-              ) : null}
-
-              <div className="ml-auto flex gap-1">
-                {pair.in ? (
-                  <button
-                    type="button"
-                    onClick={() => startEdit(pair.in!)}
-                    className="rounded p-1 text-text-muted hover:text-brand-primary"
-                    aria-label="Editar"
-                  >
-                    <Pencil size={13} />
-                  </button>
-                ) : null}
-
-                {pair.in ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      deleteRecord(today, pair.in!.id);
-                      if (pair.out) {
-                        deleteRecord(today, pair.out.id);
-                      }
-                    }}
-                    className="rounded p-1 text-text-muted hover:text-state-error"
-                    aria-label="Eliminar"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
+  return "border-line bg-surface";
 }
 
 export default function FichajePage() {
+  const { currentTeam } = useTeamContext();
+  const { tasksByTeam, updateTask, addFeedEvent } = useWorkContext();
+  const session = getSession();
+  const teamUsers = getUsersByTeam(currentTeam?.id);
+  const currentUser = resolveCurrentUser(currentTeam?.id, session?.user);
+  const canManageAssignments = currentTeam?.role === "admin" || currentTeam?.role === "manager";
+
   const hydrate = useFichajeStore((s) => s.hydrate);
   const status = useFichajeStore((s) => s.status);
   const ficharEntrada = useFichajeStore((s) => s.ficharEntrada);
   const ficharSalida = useFichajeStore((s) => s.ficharSalida);
-  const getTodayWorkedMinutes = useFichajeStore((s) => s.getTodayWorkedMinutes);
-  const getWeekWorkedMinutes = useFichajeStore((s) => s.getWeekWorkedMinutes);
   const getTodayRecords = useFichajeStore((s) => s.getTodayRecords);
+  const getWeekDays = useFichajeStore((s) => s.getWeekDays);
+  const getWeekWorkedMinutes = useFichajeStore((s) => s.getWeekWorkedMinutes);
+
+  const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [, setTick] = useState(0);
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
 
-  const [, setTick] = useState(0);
   useEffect(() => {
     if (status !== "in") {
       return;
     }
+
     const id = setInterval(() => setTick((value) => value + 1), 30000);
     return () => clearInterval(id);
   }, [status]);
 
-  const todayMins = getTodayWorkedMinutes();
-  const weekMins = getWeekWorkedMinutes();
-  const TARGET_DAY = 480;
-  const TARGET_WEEK = 2400;
+  const teamTasks = currentTeam ? tasksByTeam[currentTeam.id] ?? [] : [];
+  const availableTasks = useMemo(
+    () =>
+      teamTasks.filter((task) => {
+        if (task.status === "done") {
+          return false;
+        }
+        if (canManageAssignments) {
+          return true;
+        }
+        return !task.assigneeId || task.assigneeId === currentUser?.id;
+      }),
+    [canManageAssignments, currentUser?.id, teamTasks]
+  );
 
-  const dayColor = getStatusColor(todayMins, TARGET_DAY);
-  const weekColor = getStatusColor(weekMins, TARGET_WEEK);
-  const overtimeMins = todayMins - TARGET_DAY;
+  useEffect(() => {
+    if (!selectedTaskId || !availableTasks.some((task) => task.id === selectedTaskId)) {
+      setSelectedTaskId(availableTasks[0]?.id ?? "");
+    }
+  }, [availableTasks, selectedTaskId]);
+
+  const selectedTask = useMemo(
+    () => availableTasks.find((task) => task.id === selectedTaskId) ?? null,
+    [availableTasks, selectedTaskId]
+  );
 
   const todayRecords = getTodayRecords();
-  const firstIn = [...todayRecords]
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-    .find((record) => record.type === "in");
-
   const activeEntry = useMemo(() => {
     const sorted = [...todayRecords].sort(
       (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -283,90 +108,310 @@ export default function FichajePage() {
     return opened;
   }, [todayRecords]);
 
-  const isIn = status === "in";
-
-  const handleFichar = useCallback(() => {
-    if (status === "out") {
-      ficharEntrada();
-    } else {
-      ficharSalida();
+  const activeTask = useMemo(() => {
+    if (!activeEntry?.taskId) {
+      return null;
     }
-  }, [status, ficharEntrada, ficharSalida]);
+    return teamTasks.find((task) => task.id === activeEntry.taskId) ?? null;
+  }, [activeEntry?.taskId, teamTasks]);
+
+  const currentSessionLabel = activeEntry
+    ? formatMinutes(minutesBetween(activeEntry.timestamp, new Date().toISOString()))
+    : "Sin sesion activa";
+
+  const weekDays = getWeekDays();
+  const weekTotal = getWeekWorkedMinutes();
+  const weekTarget = weekDays.reduce((total, item) => total + item.target, 0);
+
+  function handleStartTask() {
+    if (!selectedTask) {
+      window.alert("Selecciona una tarea antes de iniciar el fichaje.");
+      return;
+    }
+
+    if (selectedTask.assigneeId && selectedTask.assigneeId !== currentUser?.id) {
+      window.alert("Esta tarea esta asignada a otro miembro del equipo.");
+      return;
+    }
+
+    const startedAt = new Date().toISOString();
+    const activity: TaskActivity = {
+      id: `task-activity-${Date.now()}`,
+      type: "started",
+      message: "Trabajo iniciado desde la seccion de fichaje.",
+      author: currentUser?.name ?? session?.user.name ?? "Usuario Demo",
+      authorId: currentUser?.id,
+      createdAt: startedAt
+    };
+
+    updateTask(selectedTask.id, {
+      assigneeId: currentUser?.id,
+      status: "in_progress",
+      activity: [...selectedTask.activity, activity]
+    });
+
+    if (currentTeam) {
+      addFeedEvent({
+        teamId: currentTeam.id,
+        content: `Tarea en progreso: ${selectedTask.title}`,
+        author: currentUser?.name ?? session?.user.name ?? "Usuario Demo",
+        eventType: "system"
+      });
+    }
+
+    ficharEntrada({
+      taskId: selectedTask.id,
+      taskTitle: selectedTask.title,
+      memberId: currentUser?.id,
+      memberName: currentUser?.name
+    });
+  }
+
+  function handleCheckoutSubmit(values: TaskCheckoutValues) {
+    if (activeTask) {
+      const createdAt = new Date().toISOString();
+      const activity: TaskActivity = {
+        id: `task-activity-${Date.now()}`,
+        type: values.resolution === "done" ? "completed" : "paused",
+        message:
+          values.note ||
+          (values.resolution === "done"
+            ? "Trabajo completado desde la seccion de fichaje."
+            : "Trabajo pausado para continuarlo mas tarde."),
+        author: currentUser?.name ?? session?.user.name ?? "Usuario Demo",
+        authorId: currentUser?.id,
+        createdAt
+      };
+
+      updateTask(activeTask.id, {
+        status: values.resolution,
+        activity: [...activeTask.activity, activity]
+      });
+
+      if (currentTeam) {
+        addFeedEvent({
+          teamId: currentTeam.id,
+          content:
+            values.resolution === "done"
+              ? `Tarea completada: ${activeTask.title}`
+              : `Tarea pausada para continuar despues: ${activeTask.title}`,
+          author: currentUser?.name ?? session?.user.name ?? "Usuario Demo",
+          eventType: values.resolution === "done" ? "task_completed" : "system"
+        });
+      }
+    }
+
+    ficharSalida({
+      note: values.note,
+      memberId: currentUser?.id,
+      memberName: currentUser?.name
+    });
+    setCheckoutOpen(false);
+  }
 
   return (
-    <div className="flex flex-col items-center gap-6 animate-fade-up pb-8">
-      <div
-        className={cn(
-          "w-full rounded-3xl border p-6 text-center shadow-lift sm:p-10",
-          isIn
-            ? "border-state-success/30 bg-gradient-to-br from-state-success/5 via-surface to-surface"
-            : "border-state-error/20 bg-gradient-to-br from-state-error/5 via-surface to-surface"
-        )}
-      >
-        <HugeClock />
+    <section className="space-y-6">
+      <header className="rounded-3xl border border-line bg-surface p-6 shadow-soft">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-line bg-surface2 px-3 py-1 text-sm font-medium text-text-secondary">
+              <span
+                className={cn(
+                  "h-2.5 w-2.5 rounded-full",
+                  status === "in" ? "animate-pulse bg-state-success" : "bg-text-muted"
+                )}
+              />
+              {status === "in" ? "Trabajando" : "Sin fichar"}
+            </div>
+            <div>
+              <h1 className="font-heading text-3xl font-semibold text-text-primary">Fichaje por tarea</h1>
+              <p className="mt-1 text-sm text-text-secondary">
+                Gestiona tu jornada solo con tareas asignadas y revisa tu actividad reciente.
+              </p>
+            </div>
+          </div>
 
-        <p
-          className={cn(
-            "mt-2 text-2xl font-extrabold tracking-wide uppercase sm:text-3xl xl:text-4xl",
-            isIn ? "text-state-success" : "text-state-error"
+          <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[520px]">
+            <div className="rounded-2xl border border-line bg-surface2 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Tarea activa</p>
+              <p className="mt-1 text-sm font-semibold text-text-primary">
+                {activeEntry?.taskTitle ?? "Selecciona una tarea para empezar"}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-line bg-surface2 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Inicio</p>
+              <p className="mt-1 text-sm font-semibold text-text-primary">
+                {activeEntry ? formatTime(activeEntry.timestamp) : "--:--:--"}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-line bg-surface2 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Sesion actual</p>
+              <p className="mt-1 text-sm font-semibold text-text-primary">{currentSessionLabel}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+          <Button
+            type="button"
+            className={cn("w-full sm:w-auto sm:px-6", status === "in" && "bg-state-error hover:bg-[#b83a3a] active:bg-[#9f3232]")}
+            leftIcon={status === "in" ? <LogOut size={18} /> : <PlayCircle size={18} />}
+            onClick={() => (status === "in" ? setCheckoutOpen(true) : handleStartTask())}
+            disabled={status === "out" && !selectedTask}
+          >
+            {status === "in" ? "Finalizar tarea" : "Iniciar tarea"}
+          </Button>
+
+          {status === "out" ? (
+            <p className="flex items-center gap-2 text-sm text-text-secondary">
+              <TimerReset size={16} />
+              El fichaje solo se puede iniciar desde una tarea seleccionada.
+            </p>
+          ) : (
+            <p className="flex items-center gap-2 text-sm text-text-secondary">
+              <CheckCircle2 size={16} />
+              Al finalizar podras indicar si la tarea queda completada o pendiente.
+            </p>
           )}
-        >
-          {isIn
-            ? `Estas dentro desde las ${firstIn ? formatTime(firstIn.timestamp) : "-"}${activeEntry?.taskTitle ? ` - ${activeEntry.taskTitle}` : ""}`
-            : "Aun no has fichado"}
-        </p>
+        </div>
+      </header>
+
+      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="rounded-3xl border border-line bg-surface p-5 shadow-soft">
+          <div className="flex items-center gap-2">
+            <SquareStack size={18} className="text-text-secondary" />
+            <div>
+              <h2 className="font-heading text-xl font-semibold text-text-primary">Tus tareas para fichar</h2>
+              <p className="text-sm text-text-secondary">
+                Elige manualmente la tarea con la que vas a empezar. Esta vista ofrece mas contexto que el acceso rapido de Inicio.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {availableTasks.length > 0 ? (
+              availableTasks.map((task) => {
+                const assignee = task.assigneeId ? teamUsers.find((user) => user.id === task.assigneeId) : null;
+                const latestActivity = task.activity[task.activity.length - 1];
+
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => setSelectedTaskId(task.id)}
+                    className={cn(
+                      "w-full rounded-2xl border p-4 text-left transition-all",
+                      getTaskCardTone(task),
+                      selectedTaskId === task.id && "border-brand-primary ring-2 ring-brand-primary/20"
+                    )}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-base font-semibold text-text-primary">{task.title}</p>
+                        <p className="mt-1 text-sm text-text-secondary">
+                          {task.description || "Sin descripcion adicional."}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full border border-line bg-surface2 px-2.5 py-1 text-xs font-medium text-text-secondary">
+                          {getPriorityLabel(task.priority)}
+                        </span>
+                        <span className="rounded-full border border-line bg-surface2 px-2.5 py-1 text-xs font-medium text-text-secondary">
+                          {getStatusLabel(task.status)}
+                        </span>
+                        {task.dueDate ? (
+                          <span className="rounded-full border border-line bg-surface2 px-2.5 py-1 text-xs font-medium text-text-secondary">
+                            {task.dueDate}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-text-secondary">
+                      <span>
+                        Responsable: <span className="font-medium text-text-primary">{assignee?.name ?? "Sin asignar"}</span>
+                      </span>
+                      {latestActivity ? (
+                        <span className="truncate">
+                          Ultima nota: <span className="font-medium text-text-primary">{latestActivity.message}</span>
+                        </span>
+                      ) : (
+                        <span>Sin seguimiento todavia</span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="rounded-2xl border border-line bg-surface2 px-4 py-5 text-sm text-text-secondary">
+                No tienes tareas disponibles para fichar en este equipo.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <div className="space-y-6">
+          <section className="rounded-3xl border border-line bg-surface p-5 shadow-soft">
+            <div className="flex items-center gap-2">
+              <CalendarDays size={18} className="text-text-secondary" />
+              <div>
+                <h2 className="font-heading text-xl font-semibold text-text-primary">Resumen semanal</h2>
+                <p className="text-sm text-text-secondary">Balance rapido de tu semana sin sobrecargar la pantalla.</p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-line bg-surface2 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Acumulado</p>
+              <div className="mt-2 flex items-end justify-between gap-4">
+                <p className="font-mono text-4xl font-bold text-text-primary">{formatMinutes(weekTotal)}</p>
+                <p className="text-sm text-text-secondary">Objetivo semanal: {formatMinutes(weekTarget)}</p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {weekDays.map((day) => {
+                const progress = day.target > 0 ? Math.min(100, Math.round((day.worked / day.target) * 100)) : 0;
+                const dayLabel = new Date(`${day.date}T00:00:00`).toLocaleDateString("es-ES", {
+                  weekday: "short",
+                  day: "2-digit"
+                });
+
+                return (
+                  <div key={day.date} className="rounded-2xl border border-line bg-white px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold capitalize text-text-primary">{dayLabel}</p>
+                        <p className="text-xs text-text-secondary">
+                          {formatMinutes(day.worked)} de {formatMinutes(day.target)}
+                        </p>
+                      </div>
+                      <span className="font-mono text-sm font-semibold text-text-primary">{progress}%</span>
+                    </div>
+                    <div className="mt-2 h-2 rounded-full bg-surface2">
+                      <div
+                        className={cn(
+                          "h-2 rounded-full",
+                          progress >= 100 ? "bg-state-success" : progress >= 75 ? "bg-state-warning" : "bg-brand-primary"
+                        )}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+        </div>
       </div>
 
-      <button
-        type="button"
-        onClick={handleFichar}
-        aria-label={isIn ? "Fichar salida" : "Fichar entrada"}
-        className={cn(
-          "flex w-full items-center justify-center gap-5 rounded-3xl px-8 py-10 text-4xl font-extrabold uppercase tracking-widest text-white shadow-lift",
-          "transition-all duration-200 hover:scale-[1.02] active:scale-[0.97] sm:text-5xl xl:text-6xl",
-          isIn ? "bg-state-error hover:opacity-90" : "bg-state-success hover:opacity-90"
-        )}
-      >
-        {isIn ? (
-          <>
-            <LogOut size={56} strokeWidth={2.5} />
-            Fichar salida
-          </>
-        ) : (
-          <>
-            <LogIn size={56} strokeWidth={2.5} />
-            Fichar entrada
-          </>
-        )}
-      </button>
-
-      <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
-        <BigStat
-          label="Hoy"
-          value={formatMinutes(todayMins)}
-          color={dayColor === "green" ? "green" : dayColor === "yellow" ? "yellow" : "default"}
-        />
-        <BigStat
-          label="Esta semana"
-          value={formatMinutes(weekMins)}
-          color={weekColor === "green" ? "green" : weekColor === "yellow" ? "yellow" : "default"}
-        />
-        <BigStat
-          label="Overtime"
-          value={
-            overtimeMins > 0
-              ? `+${formatMinutes(overtimeMins)}`
-              : overtimeMins < -30
-                ? `-${formatMinutes(Math.abs(overtimeMins))}`
-                : "-"
-          }
-          color={overtimeMins > 0 ? "green" : overtimeMins < -30 ? "red" : "default"}
-        />
-      </div>
-
-      <div className="w-full">
-        <TodayHistory />
-      </div>
-    </div>
+      <TaskCheckoutModal
+        open={checkoutOpen}
+        taskTitle={activeTask?.title ?? activeEntry?.taskTitle}
+        onClose={() => setCheckoutOpen(false)}
+        onSubmit={handleCheckoutSubmit}
+      />
+    </section>
   );
 }
